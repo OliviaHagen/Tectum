@@ -1,0 +1,197 @@
+---
+title: "5_sox2_Tectal_growth_stats_revised_compiled"
+author: "Kara Cerveny"
+date: "2026-09-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(plyr) #plyr is required for Rmisc, want to load it before dplyr (in tidyverse)
+library(tidyverse)
+library(ggbeeswarm)
+library(ggpubr)
+library(openxlsx)
+library(Rmisc)
+library(rstatix)
+library(knitr)
+library(effectsize)
+library(car)
+library(ggtext)
+library(gridtext)
+library(grid)
+library(rcompanion)
+library (emmeans)
+
+
+theme_set(theme_bw()+
+            theme(panel.spacing = unit(0, "lines"), 
+                  strip.background = element_blank(), strip.placement = "outside")+
+            theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+                panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+            theme(text = element_text(size = 16)))
+```
+## F5P1: Total number of sox2+ cells in lakritz mutants and wild-type siblings - actually volumes of sox2+ staining to total EdU staining
+```{r, echo=FALSE}
+Sox2Lak<-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figure_5_sox2/sox2_FISH.csv")
+View(Sox2Lak)
+```
+### F5P1 Getting ready for boxplot
+```{r, echo=FALSE}
+Sox2Lak$dpf<-factor(Sox2Lak$dpf,
+                         levels=c("5 dpf", "9 dpf"))
+Sox2Lak$Genotype<-factor(Sox2Lak$Genotype,
+                         levels=c("WT", "lak"))
+```
+#inserted later for adding pvalues/stat signif to plot
+```{r, echo=FALSE}
+#need to make this for manual p-values
+stat_manual_sox2 <-tibble::tribble(
+  ~dpf, ~group1,~group2,~p.adj,
+  "5 dpf", "WT", "lak", 0.332,
+  "9 dpf","WT","lak", 0.0002
+) %>%
+  mutate(
+    dpf = factor(dpf, levels = c("5 dpf", "9 dpf")),
+    p.adj.signif = case_when(
+      p.adj < 0.001 ~ "***",
+      p.adj < 0.01  ~ "**",
+      p.adj < 0.05  ~ "*",
+      TRUE          ~ "ns"
+    ),
+    y.position = 0.46   # adjust based on your beeswarm/error bar heights per facet
+  )
+```
+
+```{r}
+TectumF4P1_Sox2lakritz <- ggplot(Sox2Lak, aes(x= Genotype, y= RatioSox2DAPI))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.7, width=0.3)+
+  facet_wrap(~dpf, strip.position = "top", scales = "free_x")+
+  scale_x_discrete(labels=expression(WT, italic(lak)))+
+  xlab("Genotype")+
+  theme(axis.title =element_text(size = 14))+
+  theme(axis.title.y = ggtext::element_markdown())+    #need this for italicized axis title
+  ylab("*sox2+* volume / DAPI volume")+ 
+  ylim(0.05, 0.475)+
+  stat_pvalue_manual(stat_manual_sox2, label = "p.adj.signif", xmin = "group1", xmax = "group2", y.position = "y.position")
+  
+TectumF4P1_Sox2lakritz
+```
+#export plot as png
+```{r, echo=FALSE}
+ggsave("TectumF4P1_Sox2lakritz_revised.png", TectumF4P1_Sox2lakritz, path=NULL, 
+         scale = 1, width = 12, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+### F5P1 Statistics (ultimately to put stats on plot above)
+```{r, echo=FALSE}
+#Summary Statistics (n, mean, SD)
+group_by(Sox2Lak, Genotype, dpf) %>%
+  dplyr::summarise(
+    count = n(),
+    median = median(RatioSox2DAPI, na.rm = TRUE),
+    mean = mean(RatioSox2DAPI, na.rm = TRUE),
+    sd = sd(RatioSox2DAPI, na.rm = TRUE))
+```
+```{r, echo=FALSE}
+#Specify 5 dpf
+F <- Sox2Lak$dpf == "5 dpf"
+Sox2Lak[F,]
+#Specify 9 dpf
+N <- Sox2Lak$dpf == "9 dpf"
+Sox2Lak[N,]
+```
+Use generalized linear modeling and since these ratios are always positive can use gam
+```{r, echo=FALSE}
+# Load required libraries
+library(mgcv)
+library(emmeans)
+
+# 1. Fit the beta Regression Model
+# The logit link naturally handles variance that scales with the mean
+fit  <- gam(RatioSox2DAPI ~ Genotype * dpf, family = betar(link = "logit"), data = Sox2Lak)
+fit0 <- gam(RatioSox2DAPI ~ 1,            family = betar(link = "logit"), data = Sox2Lak)
+
+# 2. Check the Model Summary for Interaction Effects
+summary(fit)
+anova(fit0, fit, test = "F")   # overall test
+AIC(fit0, fit)
+
+# 3. Post-Hoc Comparisons
+emm_sox2lak <- emmeans(fit, ~ Genotype | dpf, type = "response")
+cons_sox2lak <-contrast(emm_sox2lak, "revpairwise", by = "dpf")
+summary(cons_sox2lak, adjust = "holm", by = NULL)
+
+```
+
+## F5P2: sox2+ cells in intact and one-eyed brains 
+```{r, echo=FALSE}
+Sox2Innerv<-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figure_5_sox2/sox2_InnervLRcompare_FISH.csv")
+View(Sox2Innerv)
+```
+### F5P2 stats then plot Graph
+```{r, echo=FALSE}
+Sox2Innerv$dpf<-factor(Sox2Innerv$dpf,
+                       levels=c("7_dpf", "9_dpf"))
+```
+#to be consistent with first part of sox2 analysis, use GAM but this time with gaussian fit because of having + and - response variables
+```{r, echo=FALSE}
+# 1.run model:
+fit_sox2innerv <- gam(sox2_LR_ratio ~ Innerv * dpf, 
+                  family = gaussian(link = "identity"), 
+                  data = Sox2Innerv)
+
+# 2. Check the Model Summary
+summary(fit_sox2innerv)
+anova(gam(sox2_LR_ratio ~ 1, data = Sox2Innerv), fit_sox2innerv, test = "F")   # overall test statistic
+
+# 3. Pairwise post-hoc tests with Bonferroni adjustment
+posthoc_sox2_innerv <- emmeans(fit_sox2innerv, pairwise ~ Innerv | dpf, type = "response")
+summary(posthoc_sox2_innerv$contrasts, adjust = "Holm", by = NULL)
+
+# View the adjusted p-values
+#pairwise_results_innerv$contrasts
+
+
+```
+
+```{r, echo=FALSE}
+#need to make this for manual p-values
+stat_manual_sox2Innerv <-tibble::tribble(
+  ~dpf, ~group1,~group2,~p.adj,
+  "7_dpf", "intact", "one_eyed", 0.063,
+  "9_dpf","intact","one_eyed", 0.0001
+) %>%
+  mutate(
+    dpf = factor(dpf, levels = c("7_dpf", "9_dpf")),
+    p.adj.signif = case_when(
+      p.adj < 0.001 ~ "***",
+      p.adj < 0.01  ~ "**",
+      p.adj < 0.05  ~ "*",
+      TRUE          ~ "ns"
+    ),
+    y.position = 0.52   # adjust based on your beeswarm/error bar heights per facet
+  )
+```
+
+```{r, echo=FALSE}
+TectumF4P2_sox2innervation <- ggplot(Sox2Innerv, aes(x=Innerv, y=ratio))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.7, width=0.3)+
+  facet_wrap(~dpf, strip.position = "top", scales = "free_x")+
+  theme(axis.title =element_text(size = 14))+
+  xlab("Innervation Status")+
+  theme(axis.title.y = ggtext::element_markdown())+    #need this for italicized axis title
+  ylab("ratio of *sox2+* volumes / tectal volumes")+ 
+  ylim(-0.2, 0.6)+
+  stat_pvalue_manual(stat_manual_sox2Innerv, label = "p.adj.signif", xmin = "group1", xmax = "group2", y.position = "y.position")
+  
+  
+print(TectumF4P2_sox2innervation)
+```
+#export plot as png
+```{r, echo=FALSE}
+ggsave("TectumF4P2_sox2innervation_revised.png", TectumF4P1_Sox2lakritz, path=NULL, 
+         scale = 1, width = 12, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```

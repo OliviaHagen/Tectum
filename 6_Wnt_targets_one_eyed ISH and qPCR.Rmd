@@ -1,0 +1,201 @@
+---
+title: "6_Wnt pathway targets ISH quantification one-eyed"
+author: "Kara Cerveny"
+date: "2026-09-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(plyr) #plyr is required for Rmisc, want to load it before dplyr (in tidyverse)
+library(tidyverse)
+library(rmarkdown)
+library(ggbeeswarm)
+library(ggpubr)
+library(ggsci)
+library(ggsignif)
+library(openxlsx)
+library(Rmisc)
+library(rstatix)
+library(knitr)
+library(effectsize)
+library(car)
+
+theme_set(theme_bw()+
+            theme(panel.spacing = unit(0, "lines"), 
+                  strip.background = element_blank(), strip.placement = "outside")+
+            theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+                panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+            theme(text = element_text(size = 16)))
+```
+
+## F6 Wnt targets (plus ccnd1 cntrl) in situ area for intact and one-eyed
+```{r, echo=FALSE}
+Wntinsituenuc <-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/area quantitation_insitus/institu_area one_eyed_quant_with_ccnD1.csv")
+View(Wntinsituenuc)
+```
+#Plot of area quantitation to accompany ISH data
+```{r, echo=FALSE}
+WntinsituenucSummary <- summarySE(Wntinsituenuc, measurevar="Ratio", groupvars=c("Gene","Innerv"))
+WntinsituenucSummary
+
+Wntinsituenuc$Gene<-factor(Wntinsituenuc$Gene,
+                         levels=c("axin2", "lef1", "ccnD1"))
+
+TectumF6P2_Wntinsitu_enuc_with_ccnD1 <- ggplot(Wntinsituenuc, aes(x=Innerv, y=Ratio))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.7, width=0.3)+
+  facet_wrap(~Gene, strip.position = "top", scales = "free_x", nrow=1)+
+  theme(strip.text.x = element_text(face="italic"))+
+  xlab("Innervation Status")+
+  ylab("Expression Area Ratio [(L-R)/Total]")+
+  ylim(-0.09, 0.28)+
+  #stat_compare_means(comparisons = list(c("intact", "one-eyed")), method="wilcox.test",label = "p.signif")
+
+geom_pwc(method = "wilcox.test", label = "p.signif")
+#p values: axin = 0.00216, lef1 = 0.016, ccnd1 = 0.841
+
+print(TectumF6P2_Wntinsitu_enuc_with_ccnD1)
+```
+
+```{r, echo=FALSE}
+ggsave ("TectumF6P2_Wntinsitu_enuc_withccnD1.png", TectumF6P2_Wntinsitu_enuc_with_ccnD1, path=NULL, 
+        scale = 1, width = 13, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+```{r}
+#Specify axin2
+A2 <- Wntinsituenuc$Gene == "axin2"
+Wntinsituenuc[A2,]
+#Specify lef1
+L2 <- Wntinsituenuc$Gene == "lef1"
+Wntinsituenuc[L2,]
+#Specify ccnD1
+C2 <- Wntinsituenuc$Gene == "ccnD1"
+Wntinsituenuc[C2,]
+```
+```{r}
+# axin2
+t.test(Ratio ~ Innerv, data = Wntinsituenuc[A2,])
+wilcox.test(Ratio ~ Innerv, data = Wntinsituenuc[A2,], exact = FALSE, conf.int = TRUE)
+
+# lef1
+t.test(Ratio ~ Innerv, data = Wntinsituenuc[L2,]) 
+wilcox.test(Ratio ~ Innerv, data = Wntinsituenuc[L2,], exact = FALSE, conf.int = TRUE)
+
+# ccnD1
+t.test(Ratio ~ Innerv, data = Wntinsituenuc[C2,]) 
+wilcox.test(Ratio ~ Innerv, data = Wntinsituenuc[C2,], exact = FALSE, conf.int = TRUE)
+```
+
+## Plot and stats for qPCR of intact and one-eyed (@24hpf)
+```{r, echo=FALSE}
+qPCRWnt <-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figures 6_7_Wnt tectum figure images/TectumF6P4_WntqPCR_kc.csv")
+
+View(qPCRWnt)
+```
+### qPCR bar plot
+```{r, echo=FALSE}
+qPCRWntSummary <- summarySE(qPCRWnt, measurevar="relative_fold_change", groupvars=c("Gene","Innerv"))
+qPCRWntSummary
+```
+```{r, echo=FALSE}
+qPCRWnt$Gene<-factor(qPCRWnt$Gene,
+                        levels=c("axin2", "lef1", "ccnD1"))
+
+qPCRWnt$Innerv<-factor(qPCRWnt$Innerv,
+                       levels=c("intact", "one-eyed"))
+
+qPCRWntSummary$Gene<-factor(qPCRWntSummary$Gene,
+                       levels=c("axin2", "lef1", "ccnD1"))
+
+qPCRWntSummary$Innerv<-factor(qPCRWntSummary$Innerv,
+                       levels=c("intact", "one-eyed"))
+```
+
+```{r, echo=FALSE}
+TectumF6P3_WntqPCR<- ggplot(qPCRWntSummary, aes(x= Innerv, y= relative_fold_change))+
+  geom_bar(stat="identity", aes(fill=Innerv), show.legend=FALSE)+
+  scale_fill_manual(values=c("dark gray", "light gray"))+
+  facet_wrap(~Gene, strip.position = "top", scales = "free_x")+
+  xlab("Innervation Status")+
+  ylab("Relative Fold Change")+ 
+  geom_errorbar(data=qPCRWntSummary, 
+                aes(ymin=relative_fold_change-ci,
+                    ymax=relative_fold_change+ci, width=.15))+
+  theme(strip.text.x = element_text(face="italic"))+
+  ylim(0, 1.67)+
+  stat_compare_means(data=qPCRWnt,comparisons = list(c("intact", "one-eyed")), method="t.test", label = "p.signif")
+#p values: axin = 0.011, lef1 = 0.14, ccnd1 = 0.31
+
+print(TectumF6P3_WntqPCR)
+```
+```{r, echo=FALSE}
+ggsave ("TectumF6P3_Wnt_targets_qPCR.png", TectumF6P3_WntqPCR, path=NULL, 
+        scale = 1, width = 14, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+### Part 3 Statistics
+```{r, echo=FALSE}
+#Summary Statistics (n, mean, SD)
+
+group_by(qPCRWnt, Innerv, Gene) %>%
+  dplyr::summarise(count = n(),
+    mean = mean(relative_fold_change, na.rm = TRUE),
+    sd = sd(relative_fold_change, na.rm = TRUE))
+```
+```{r, echo=FALSE}
+#Specify axin2
+A <- qPCRWnt$Gene == "axin2"
+qPCRWnt[A,]
+#Specify lef1
+L <- qPCRWnt$Gene == "lef1"
+qPCRWnt[L,]
+#Specify ccnD1
+C <- qPCRWnt$Gene == "ccnD1"
+qPCRWnt[C,]
+```
+```{r, echo=FALSE}
+#Before t-test, you have to (1) check for normal distribution and (2) check for equal variance
+# Check for normal distribution
+with(qPCRWnt[A,], shapiro.test(relative_fold_change[Innerv == "intact"])) #p-value = 0.499
+with(qPCRWnt[A,], shapiro.test(relative_fold_change[Innerv == "one-eyed"])) #p-value = 0.9735
+with(qPCRWnt[L,], shapiro.test(relative_fold_change[Innerv == "intact"])) #p-value = 0.5529
+with(qPCRWnt[L,], shapiro.test(relative_fold_change[Innerv == "one-eyed"])) #p-value = 0.3103
+with(qPCRWnt[C,], shapiro.test(relative_fold_change[Innerv == "intact"])) #p-value = 0.4744
+with(qPCRWnt[C,], shapiro.test(relative_fold_change[Innerv == "one-eyed"])) #p-value = 0.3086
+#p-value > 0.05 implies that the distribution of the data are not significantly different from normal distribution.
+```
+```{r, echo=FALSE}
+qqnorm(qPCRWnt[A,]$relative_fold_change, pch = 1, frame = FALSE)
+qqline(qPCRWnt[A,]$relative_fold_change, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+qqnorm(qPCRWnt[L,]$relative_fold_change, pch = 1, frame = FALSE)
+qqline(qPCRWnt[L,]$relative_fold_change, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+qqnorm(qPCRWnt[C,]$relative_fold_change, pch = 1, frame = FALSE)
+qqline(qPCRWnt[C,]$relative_fold_change, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+# Variance Testing
+var.test(relative_fold_change ~ Innerv, data = qPCRWnt[A,]) #p-value = 0.5313
+var.test(relative_fold_change ~ Innerv, data = qPCRWnt[L,]) #p-value = 0.9156
+var.test(relative_fold_change ~ Innerv, data = qPCRWnt[C,]) #p-value = 0.005168  *
+```
+```{r, echo=FALSE}
+# T-Test or wilcox.test for comparing 2 variables (go with wilcox since it is more conservative in this instance; unequal variance but equal number of samples)
+
+# axin2
+t.test(relative_fold_change ~ Innerv, data = qPCRWnt[A,]) #p-value = 0.01081
+wilcox.test(relative_fold_change ~ Innerv, data = qPCRWnt[A,], exact = FALSE, conf.int = TRUE) #p-value = 0.02857
+
+# lef1
+t.test(relative_fold_change ~ Innerv, data = qPCRWnt[L,]) #p-value = 0.1367
+wilcox.test(relative_fold_change ~ Innerv, data = qPCRWnt[L,], exact = FALSE, conf.int = TRUE) #p-value = 0.1643
+
+# ccnD1
+t.test(relative_fold_change ~ Innerv, data = qPCRWnt[C,]) #p-value = 0.3051
+wilcox.test(relative_fold_change ~ Innerv, data = qPCRWnt[C,], exact = FALSE, conf.int = TRUE) #p-value = 0.3429
+```

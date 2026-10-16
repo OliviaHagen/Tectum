@@ -1,0 +1,375 @@
+---
+title: "Statistical Analyses for Tectal Growth Manuscript"
+date: "2026-09-20"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+#knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(
+  fig.align = "center",
+  out.width = "100%",
+  fig.width = 6,
+  fig.height = 4
+)
+
+library(plyr) #plyr is required for Rmisc, want to load it before dplyr (in tidyverse)
+library(tidyverse)
+library(ggbeeswarm)
+library(ggpubr)
+library(ggsci)
+library(ggsignif)
+library(Rmisc)
+library(rstatix)
+library(knitr)
+library(car)
+library(effectsize)
+library(rcompanion)
+library(glmmTMB)
+library(DHARMa);
+library(mgcv)
+library(MASS)    
+library(emmeans)
+library (permuco)
+
+
+theme_set(theme_bw()+
+            theme(panel.spacing = unit(0, "lines"), 
+                  strip.background = element_blank(), strip.placement = "outside")+
+            theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+                panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+            theme(text = element_text(size = 16)))
+```
+
+#TUNEL+ in lak and wt sibs between 6-9 dpf (F2P1)
+```{r, echo=FALSE}
+TUNELLakAge <-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/TUNEL_Hannah_requant/TectumF2P1_TUNELLakAge.csv")
+View(TUNELLakAge)
+
+### Part 1 Graph - visually inspect data and distibutions (no stats yet)
+TUNELLakAge$Age<-factor(TUNELLakAge$Age, 
+                        levels=c("5 dpf", "6 dpf", "7 dpf", "9 dpf"))
+TUNELLakAge$Genotype<-factor(TUNELLakAge$Genotype, 
+                             levels=c("WT", "lak")) 
+TectumF2P1_TUNELLakAge <- ggplot(TUNELLakAge, aes(x= Genotype, y= Total))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.7, width=0.3)+
+  facet_wrap(~Age, strip.position = "top", scales = "fixed", nrow =1)+
+  scale_x_discrete(labels=expression(WT, italic(lak)))+
+  xlab("Genotype")+
+  ylab("Total TUNEL+ Cells")+ 
+  ylim(0,46)
+
+print(TectumF2P1_TUNELLakAge)
+```
+
+# F2P1 Statistics
+```{r, echo=FALSE}
+#Summary Statistics (n, mean, SD)
+group_by(TUNELLakAge, Genotype, Age) %>%
+  dplyr::summarise(
+    count = n(),
+    mean = mean(Total, na.rm = TRUE),
+    median = median(Total, na.rm = TRUE),
+    sd = sd(Total, na.rm = TRUE))
+
+#Group by ages
+#Specify 5 dpf
+F <- TUNELLakAge$Age == "5 dpf"
+TUNELLakAge[F,]
+#Specify 6 dpf
+X <- TUNELLakAge$Age == "6 dpf"
+TUNELLakAge[X,]
+#Specify 7 dpf
+S <- TUNELLakAge$Age == "7 dpf"
+TUNELLakAge[S,]
+#Specify 9 dpf
+N <- TUNELLakAge$Age == "9 dpf"
+TUNELLakAge[N,]
+
+#Check Data before statistical testing
+#T-test assumptions: random representative collection, appropriate sample size, normal distribution (Shapiro–Wilk test vs Q-Q plots), and homogeneity of variance
+#Two-way ANOVA assumptions: normality of residuals (test with Shapiro-Wik tests and Q-Q plots) and roughly equal variance (Levene's or F-test)
+
+## 1. Check for normal distribution
+with(TUNELLakAge[F,], shapiro.test(Total[Genotype == "lak"])) #p-value = 0.02556   *
+with(TUNELLakAge[F,], shapiro.test(Total[Genotype == "WT"])) #p-value = 0.1961
+with(TUNELLakAge[X,], shapiro.test(Total[Genotype == "lak"])) #p-value = 0.3314
+with(TUNELLakAge[X,], shapiro.test(Total[Genotype == "WT"])) #p-value = 0.09529
+with(TUNELLakAge[S,], shapiro.test(Total[Genotype == "lak"])) #p-value = 0.02668   *
+with(TUNELLakAge[S,], shapiro.test(Total[Genotype == "WT"])) #p-value = 0.06121       
+with(TUNELLakAge[N,], shapiro.test(Total[Genotype == "lak"])) #p-value = 0.6264
+with(TUNELLakAge[N,], shapiro.test(Total[Genotype == "WT"])) #p-value = 0.8734
+#p-value > 0.05 implies that the distribution of the data are not significantly different from normal distribution.
+```
+```{r, echo=FALSE}
+#Q-Q plot for 5 dpf data
+qqnorm(TUNELLakAge[F,]$Total, pch = 1, frame = FALSE)
+qqline(TUNELLakAge[F,]$Total, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+#Q-Q plot for 6 dpf data
+qqnorm(TUNELLakAge[X,]$Total, pch = 1, frame = FALSE)
+qqline(TUNELLakAge[X,]$Total, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+#Q-Q plot for 7 dpf data
+qqnorm(TUNELLakAge[S,]$Total, pch = 1, frame = FALSE)
+qqline(TUNELLakAge[S,]$Total, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+#Q-Q plot for 9 dpf data
+qqnorm(TUNELLakAge[N,]$Total, pch = 1, frame = FALSE)
+qqline(TUNELLakAge[N,]$Total, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+# 2. Test for equal Variance 
+# F-test (var.test) is very sensitive to departure from the normal assumption. If there is doubt about normality, the better choice is to use Levene’s test or Fligner-Killeen test, which are less sensitive. Remember that Welch's t-test works with unequal variance!
+var.test(Total ~ Genotype, data = TUNELLakAge[F,]) #p-value = 0.379
+fligner.test(Total ~ Genotype, data = TUNELLakAge[F,]) #p-value = 0.7903
+var.test(Total ~ Genotype, data = TUNELLakAge[X,]) #p-value = 0.8467
+var.test(Total ~ Genotype, data = TUNELLakAge[S,]) #p-value = 0.0001537   *
+fligner.test(Total ~ Genotype, data = TUNELLakAge[S,]) #p-value = 0.003101*
+var.test(Total ~ Genotype, data = TUNELLakAge[N,]) #p-value = 0.09501
+#p-value > 0.05 implies that the variances are not significantly different from each other
+```
+
+#Sample size is small to medium, some of datasets within the larger set are not normally distributed and/or have unequal variance so some worries about using 2-way ANOVA. Instead use generalized linear model (negative binomial) with likelihood ratio tests
+
+```{r}
+TUNELLakAge$Genotype <- factor(TUNELLakAge$Genotype, levels = c("WT", "lak"))
+TUNELLakAge$Age <- factor(TUNELLakAge$Age)
+
+# 1. Fit the Negative Binomial Model (Safely absorbs biological overdispersion)
+mod_TUNELlakAgeCount <- glmmTMB(Total ~ Genotype * Age, dispformula = ~ Age, family = nbinom2, data = TUNELLakAge)
+
+# 2. Check main effects and interaction p-values
+summary(mod_TUNELlakAgeCount)
+
+g_null <- update(mod_TUNELlakAgeCount, . ~ 1)              # check summary(g_null) still shows the dispersion model
+g_add  <- update(mod_TUNELlakAgeCount, . ~ Genotype + Age)
+
+anova(g_null, mod_TUNELlakAgeCount)      # overall LRT
+anova(g_add,  mod_TUNELlakAgeCount)      # interaction LRT
+AIC(mod_TUNELlakAgeCount)
+
+#overall output that matters: mod_TUNELlakAgeCount 12 685.41 717.37 -330.70   661.41 12.778      3   0.005143 **
+#(chi^2(df) = value, p = value)
+
+# 3. Compute post-hoc pairwise slicing
+# type = "response" converts log-counts back into raw counts automatically
+posthoc_mod_TUNELlakAgeCount <- emmeans(mod_TUNELlakAgeCount, pairwise ~ Genotype | Age, type = "response")
+summary(posthoc_mod_TUNELlakAgeCount$contrasts, adjust = "Holm", by = NULL)
+
+posthoc_mod_TUNELlakwtALL <- emmeans(mod_TUNELlakAgeCount, pairwise ~ Age | Genotype, type = "response")
+summary(posthoc_mod_TUNELlakwtALL$contrasts, adjust = "Holm", by = NULL)
+```
+
+##Now replot data with stats included
+```{r, echo=FALSE}
+#need to make this to input manual p-values on plot
+stat_manual_lakTUNEL <-tibble::tribble(
+  ~Age, ~group1,~group2,~p.adj,
+  "5 dpf", "WT", "lak", 0.31,
+  "6 dpf", "WT", "lak", 0.09,
+  "7 dpf", "WT", "lak", 0.001,
+  "9 dpf","WT","lak", 0.4142
+) %>%
+  mutate(
+    dpf = factor(Age, levels = c("5 dpf", "6 dpf", "7 dpf", "9 dpf")),
+    p.adj.signif = case_when(
+      p.adj < 0.001 ~ "***",
+      p.adj < 0.01  ~ "**",
+      p.adj < 0.05  ~ "*",
+      TRUE          ~ "ns"
+    ),
+    y.position = 45   # adjust based on your error bar heights per facet
+  )
+#Now make the plot
+TUNELLakAge$Age<-factor(TUNELLakAge$Age, 
+                        levels=c("5 dpf", "6 dpf", "7 dpf", "9 dpf"))
+TUNELLakAge$Genotype<-factor(TUNELLakAge$Genotype, 
+                             levels=c("WT", "lak")) 
+TectumF2P1_TUNELLakAge <- ggplot(TUNELLakAge, aes(x= Genotype, y= Total))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.7, width=0.3)+
+  facet_wrap(~Age, strip.position = "top", scales = "fixed", nrow =1)+
+  scale_x_discrete(labels=expression(WT, italic(lak)))+
+  xlab("Genotype")+
+  ylab("Total TUNEL+ Cells")+ 
+  ylim(0,46)+
+    stat_pvalue_manual(stat_manual_lakTUNEL, label = "p.adj.signif", 
+                     xmin = "group1", 
+                     xmax = "group2",
+                     y.position = "y.position")
+print(TectumF2P1_TUNELLakAge)
+```
+
+```{r, echo=FALSE}
+ggsave("TectumF2P1_TUNELLakAge.png", TectumF2P1_TUNELLakAge, path=NULL, 
+         scale = 1, width = 14, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+
+#TUNEL+ in intact and one-eyed larvae between 6-9 dpf (F2P2)
+```{r}
+#Load data and make box plot to see distributions etc
+RouseTUNEL<-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/TUNEL_Hannah_requant/TectumF2P2_RouseTUNEL.csv")
+View(RouseTUNEL)
+```
+```{r, echo=FALSE}
+RouseTUNEL$dpf<-factor(RouseTUNEL$dpf,
+                       levels=c("6 dpf", "7 dpf", "9 dpf"))
+
+TectumF2P2_RouseTUNEL <- ggplot(RouseTUNEL, aes(x= Innerv, y= Ratio))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.7, width=0.3)+
+  facet_wrap(~dpf, strip.position = "top", scales = "free_x")+
+  xlab("Innervation Status")+
+  ylab("Ratio of TUNEL+ Cells")+ 
+  ylim(-1, 1.2)
+  
+print(TectumF2P2_RouseTUNEL)
+```
+
+# F2P2 Statistics
+```{r, echo=FALSE}
+#Summary Statistics (n, mean, SD)
+group_by(RouseTUNEL, Innerv, dpf) %>%
+  dplyr::summarise(
+    count = n(),
+    mean = mean(Ratio, na.rm = TRUE),
+    median = median(Ratio, na.rm = TRUE),
+    sd = sd(Ratio, na.rm = TRUE))
+```
+
+#Check Data before statistical testing
+#T-test assumptions: random representative collection, appropriate sample size, normal distribution (Shapiro–Wilk test vs Q-Q plots), and homogeneity of variance
+#Two-way ANOVA assumptions: normality of residuals (test with Shapiro-Wik tests and Q-Q plots) and roughly equal variance (Levene's or F-test)
+```{r, echo=FALSE}
+#group data into individual ages since that's what we're comparing and how the experiment was performed
+#Specify 6 dpf
+X <- RouseTUNEL$dpf == "6 dpf"
+ RouseTUNEL[X,]
+#Specify 7 dpf
+S <- RouseTUNEL$dpf == "7 dpf"
+RouseTUNEL[S,]
+#Specify 9 dpf
+N <- RouseTUNEL$dpf == "9 dpf"
+RouseTUNEL[N,]
+```
+```{r}
+#Check Data shape before running test/models
+#Check for normality with test and Q-Q plots
+with(RouseTUNEL[X,], shapiro.test(Ratio[Innerv == "one-eyed"])) #p-value = 0.4394
+with(RouseTUNEL[X,], shapiro.test(Ratio[Innerv == "intact"])) #p-value = 0.4762
+with(RouseTUNEL[S,], shapiro.test(Ratio[Innerv == "one-eyed"])) #p-value = 0.9894
+with(RouseTUNEL[S,], shapiro.test(Ratio[Innerv == "intact"])) #p-value = 0.06636
+with(RouseTUNEL[N,], shapiro.test(Ratio[Innerv == "one-eyed"])) #p-value = 0.8696
+with(RouseTUNEL[N,], shapiro.test(Ratio[Innerv == "intact"])) #p-value = 0.04037     *
+#p-value > 0.05 implies that the distribution of the data are not significantly different from normal distribution.
+```
+```{r}
+#Q-Q plot for 6 dpf
+qqnorm(RouseTUNEL[X,]$Ratio, pch = 1, frame = FALSE)
+qqline(RouseTUNEL[X,]$Ratio, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+#Q-Q plot for 7 dpf
+qqnorm(RouseTUNEL[S,]$Ratio, pch = 1, frame = FALSE)
+qqline(RouseTUNEL[S,]$Ratio, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+#Q-Q plot for 9 dpf
+qqnorm(RouseTUNEL[N,]$Ratio, pch = 1, frame = FALSE)
+qqline(RouseTUNEL[N,]$Ratio, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+# Variance Testing
+# F-test (var.test) is very sensitive to departure from the normal assumption. If there is doubt about normality, the better choice is to use Levene’s test or Fligner-Killeen test, which are less sensitive.
+# Remember that Welch's t-test robust to unequal variance 
+var.test(Ratio ~ Innerv, data = RouseTUNEL[X,]) #p-value = 0.81
+var.test(Ratio ~ Innerv, data = RouseTUNEL[S,]) #p-value = 0.8185
+var.test(Ratio ~ Innerv, data = RouseTUNEL[N,]) #p-value = 0.6957
+fligner.test(Ratio ~ Innerv, data = RouseTUNEL[N,]) #p-value = 0.9921
+#p-value > 0.05 implies that the variances are not significantly different from each other
+```
+
+#Using GAM but this time with gaussian + and - response variables from the ratio; the data have mostly equal variance but not always normal and samples are unbalanced
+```{r, echo=FALSE}
+# 1. filter data and run model:
+RouseTUNEL$Innerv <- factor(RouseTUNEL$Innerv, levels = c("intact", "one-eyed"))  
+RouseTUNEL$dpf <- factor(RouseTUNEL$dpf, levels = c("6 dpf", "7 dpf", "9 dpf"))
+
+TUNEL_innerv_model <- gam(Ratio ~ Innerv * dpf, 
+                  family = gaussian(link = "identity"), 
+                  data = RouseTUNEL)
+
+# 2. Check the Model Summary
+summary(TUNEL_innerv_model)
+anova(gam(Ratio ~ 1, data = RouseTUNEL), TUNEL_innerv_model, test = "F")   # overall test statistic
+
+# 3. Pairwise post-hoc tests with Bonferroni-Holm adjustment
+posthoc_mod_TUNEL_innerv <- emmeans(TUNEL_innerv_model, pairwise ~ Innerv | dpf, type = "response")
+summary(posthoc_mod_TUNEL_innerv$contrasts, adjust = "Holm", by = NULL)
+
+
+```
+
+##Now replot data with stats included
+```{r, echo=FALSE}
+#need to make this to input manual p-values on plot
+stat_manual_Innerv_TUNEL <-tibble::tribble(
+  ~dpf, ~group1,~group2,~p.adj,
+  "6 dpf", "intact", "one-eyed", 0.579,
+  "7 dpf", "intact", "one-eyed", 0.113,
+  "9 dpf","intact","one-eyed", 0.005
+) %>%
+  mutate(
+    dpf = factor(dpf, levels = c("6 dpf", "7 dpf", "9 dpf")),
+    p.adj.signif = case_when(
+      p.adj < 0.001 ~ "**",
+      p.adj < 0.01  ~ "*",
+      p.adj < 0.05  ~ "",
+      TRUE          ~ "ns"
+    ),
+    y.position = 0.9   # adjust based on your error bar heights per facet
+  )
+
+#Now make the plot
+RouseTUNEL$dpf<-factor(RouseTUNEL$dpf, 
+                        levels=c("6 dpf", "7 dpf", "9 dpf"))
+RouseTUNEL$Innerv<-factor(RouseTUNEL$Innerv, 
+                             levels=c("intact", "one-eyed")) 
+TectumF2P2_RouseTUNEL <- ggplot(RouseTUNEL, aes(x= Innerv, y= Ratio))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.7, width=0.3)+
+  facet_wrap(~dpf, strip.position = "top", scales = "fixed", nrow =1)+
+  scale_x_discrete(labels=expression(intact, one-eyed))+
+  xlab("Innervation Status")+
+  ylab("TUNEL Ratio [(L-R)/Total]")+ 
+  ylim(-1, 1.05)+
+    stat_pvalue_manual(stat_manual_Innerv_TUNEL, label = "p.adj.signif", 
+                     xmin = "group1", 
+                     xmax = "group2",
+                     y.position = "y.position")
+print(TectumF2P2_RouseTUNEL)
+
+```
+```{r, echo=FALSE}
+ggsave("TectumF2P2_Innerv_TUNEL.png", TectumF2P2_RouseTUNEL, path=NULL, 
+         scale = 1, width = 14, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+#effect sizes for pairwise comparisons
+```{r}
+##Now calculate pairwise effect sizes with Hedge's g
+#Hedges test for 6 dpf
+hedges_g(Ratio ~ Innerv, data = RouseTUNEL[X,])
+#Hedges test for 7 dpf
+hedges_g(Ratio ~ Innerv, data = RouseTUNEL[S,])
+#Hedges test for 9 dpf
+hedges_g(Ratio ~ Innerv, data = RouseTUNEL[N,])
+```

@@ -1,0 +1,319 @@
+---
+title: "EdU_Tectal_growth_stats_revised_compiled"
+author: "Kara Cerveny"
+date: "2026-09-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(plyr) #plyr is required for Rmisc, want to load it before dplyr (in tidyverse)
+library(tidyverse)
+library(ggbeeswarm)
+library(ggpubr)
+library(ggsci)
+library(ggsignif)
+library(openxlsx)
+library(Rmisc)
+library(rstatix)
+library(knitr)
+library(effectsize)
+library(rcompanion)
+library(mgcv)
+library(emmeans)
+library(glmmTMB)
+library (permuco)
+
+theme_set(theme_bw()+
+            theme(panel.spacing = unit(0, "lines"), 
+                  strip.background = element_blank(), strip.placement = "outside")+
+            theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+                panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+            theme(text = element_text(size = 16)))
+```
+
+## F3P1: Total number of EdU+ cells in lakritz mutants and wild-type siblings
+```{r, echo=FALSE}
+F3P1EdULakritz<-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figure_3_EdU/TectumF3P1_EdULakrtiz.csv")
+View(F3P1EdULakritz)
+```
+### Part 1 Plot to look at distribution of data
+```{r, echo=FALSE}
+#first factor data into levels by age and genotype
+F3P1EdULakritz$dpf<-factor(F3P1EdULakritz$Age,
+                           levels=c("5 dpf", "7 dpf", "9 dpf"))
+F3P1EdULakritz$Genotype<-factor(F3P1EdULakritz$Genotype,
+                                levels=c("WT", "lak"))
+#make boxplot
+TectumF3P1_EdULakritz <- ggplot(F3P1EdULakritz, aes(x= Genotype, y= Total))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.7, width=0.3)+
+  scale_fill_manual(values=c("black", "gray"))+
+  facet_wrap(~Age, strip.position = "top", scales = "free_x")+
+  scale_x_discrete(labels=expression(WT, italic(lak)))+
+  xlab("Genotype")+
+  ylab("Total Number of EdU+ Cells")+
+  ylim(0, 450)
+print(TectumF3P1_EdULakritz)
+```
+###F3P1 Statistics
+```{r, echo=FALSE}
+#To prep for Summary Statistics (n, mean, median, SD)
+group_by(F3P1EdULakritz, Genotype, Age) %>%
+  dplyr::summarise(
+    count = n(),
+    mean = mean(Total, na.rm = TRUE),
+    median = median(Total, na.rm = TRUE),
+    sd = sd(Total, na.rm = TRUE))
+```
+```{r, echo=FALSE}
+#Specify 5 dpf
+F <- F3P1EdULakritz$Age == "5 dpf"
+F3P1EdULakritz[F,]
+#Specify 7 dpf
+S <- F3P1EdULakritz$Age == "7 dpf"
+F3P1EdULakritz[S,]
+#Specify 9 dpf
+N <- F3P1EdULakritz$Age == "9 dpf"
+F3P1EdULakritz[N,]
+```
+#checking data for normality and equal variance (and inspecting for even distribution of samples per category)
+```{r, echo=FALSE}
+#most parametric assumptions = random representative collection, appropriate sample size, normal distribution (Shapiro–Wilk test vs Q-Q plots), and homogeneity of variance 
+with(F3P1EdULakritz[F,], shapiro.test(Total[Genotype == "WT"])) #p-value = 0.1001
+with(F3P1EdULakritz[F,], shapiro.test(Total[Genotype == "lak"])) #p-value = 0.03237     *
+with(F3P1EdULakritz[S,], shapiro.test(Total[Genotype == "WT"])) #p-value = 0.6206
+with(F3P1EdULakritz[S,], shapiro.test(Total[Genotype == "lak"])) #p-value = 0.06655
+with(F3P1EdULakritz[N,], shapiro.test(Total[Genotype == "WT"])) #p-value = 0.3033
+with(F3P1EdULakritz[N,], shapiro.test(Total[Genotype == "lak"])) #p-value = 0.003257    *
+#p-value > 0.05 implies that the distribution of the data are not significantly different from normal distribution.
+```
+```{r, echo=FALSE}
+qqnorm(F3P1EdULakritz[F,]$Total, pch = 1, frame = FALSE)
+qqline(F3P1EdULakritz[F,]$Total, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+qqnorm(F3P1EdULakritz[S,]$Total, pch = 1, frame = FALSE)
+qqline(F3P1EdULakritz[S,]$Total, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+qqnorm(F3P1EdULakritz[N,]$Total, pch = 1, frame = FALSE)
+qqline(F3P1EdULakritz[N,]$Total, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+# Variance Testing
+# F-test is very sensitive to departure from the normal assumption. If there is doubt about normality, the better choice is to use Levene’s test or Fligner-Killeen test, which are less sensitive.
+
+fligner.test(Total ~ Genotype, data = F3P1EdULakritz[F,]) #p-value = 0.2269
+fligner.test(Total ~ Genotype, data = F3P1EdULakritz[S,]) #p-value = 0.3207
+fligner.test(Total ~ Genotype, data = F3P1EdULakritz[N,]) #p-value = 0.102
+#p-value > 0.05 implies that the variances are not significantly different from each other
+```
+
+##For stats for analysis and adding p-values to plot, choose generalized linear model (negative binomial but with dispersion since variance is very variable when comparing ages) glmmTMB
+```{r}
+F3P1EdULakritz$Genotype <- factor(F3P1EdULakritz$Genotype, levels = c("WT", "lak"))
+F3P1EdULakritz$Age <- factor(F3P1EdULakritz$Age)
+
+# 1. Fit the Negative Binomial Model (Safely absorbs biological overdispersion)
+mod_EdUlakAgeCount <- glmmTMB(Total ~ Genotype * Age, dispformula = ~ Age, family = nbinom2, data = F3P1EdULakritz)
+
+summary(mod_EdUlakAgeCount)
+
+#g_null <- update(mod_EdUlakAgeCount, . ~ 1)              # check summary(g_null) still supports using dispersion model
+g_add  <- update(mod_EdUlakAgeCount, . ~ Genotype + Age)
+
+#anova(g_null, mod_EdUlakAgeCount)      # overall LRT
+anova(g_add,  mod_EdUlakAgeCount)      # interaction LRT
+AIC(mod_EdUlakAgeCount)
+
+#In the output, this is the line that matters for the overall model: 
+#mod_EdUlakAgeCount  9 923.92 946.41 -452.96   905.92 8.8597      2    0.01192 *
+#(chi^2(df) = value, p = value)
+
+emm_EdUlakAgeCount <- emmeans(mod_EdUlakAgeCount, ~ Genotype | Age, type = "response")
+summary(contrast(emm_EdUlakAgeCount, "revpairwise", by = "Age"), adjust = "holm", by = NULL, infer = TRUE)
+
+emm_EdUlak_ALL <- emmeans(mod_EdUlakAgeCount, pairwise ~ Age | Genotype, type = "response")
+summary(emm_EdUlak_ALL$contrasts, adjust = "Holm", by = NULL)
+```
+## Now remake plot with relevant stats added
+```{r, echo=FALSE}
+stat_manual_lakEdU <-tibble::tribble(
+  ~Age, ~group1,~group2,~p.adj,
+  "5 dpf", "WT", "lak", 0.999,
+  "7 dpf", "WT", "lak", 0.999,
+  "9 dpf","WT","lak", 0.0028
+) %>%
+  mutate(
+    dpf = factor(Age, levels = c("5 dpf", "7 dpf", "9 dpf")),
+    p.adj.signif = case_when(
+      p.adj < 0.001 ~ "***",
+      p.adj < 0.01  ~ "**",
+      p.adj < 0.05  ~ "*",
+      TRUE          ~ "ns"
+    ),
+    y.position = 435   # adjust based on your error bar heights per facet
+  )
+
+#Now make box plot with stats
+TectumF3P1_EdULakritz_stats <- ggplot(F3P1EdULakritz, aes(x= Genotype, y= Total))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.7, width=0.3)+
+  scale_fill_manual(values=c("black", "gray"))+
+  facet_wrap(~Age, strip.position = "top", scales = "free_x")+
+  scale_x_discrete(labels=expression(WT, italic(lak)))+
+  xlab("Genotype")+
+  ylab("Total Number of EdU+ Cells")+
+  ylim(0, 450)+
+   stat_pvalue_manual(stat_manual_lakEdU, label = "p.adj.signif", 
+                     xmin = "group1", 
+                     xmax = "group2",
+                     y.position = "y.position")
+print(TectumF3P1_EdULakritz_stats)
+```
+```{r, echo=FALSE}
+ggsave("TectumF3P1_TectumF3P1_EdULakritz_stats.png", TectumF3P1_EdULakritz_stats, path=NULL, 
+         scale = 1, width = 14, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+### F3P2: Ratio of EdU+ cells in intact and one-eyed brains
+```{r, echo=FALSE}
+HannahEdUEnuc5dpf<-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figure_3_EdU/TectumF3P2_HannahEdUEnuc5d.csv")
+View(HannahEdUEnuc5dpf)
+```
+## Make plot to view the data before doing stats
+```{r, echo=FALSE}
+#factor data to make plot
+HannahEdUEnuc5dpf$dpf<-factor(HannahEdUEnuc5dpf$dpf,
+                              levels=c("7 dpf", "9 dpf"))
+HannahEdUEnuc5dpf$Innerv<-factor(HannahEdUEnuc5dpf$Innerv,
+                                 levels=c("intact", "one-eyed"))
+```
+
+```{r, echo=FALSE}
+TectumF3P2_HannahEdUEnuc5d <- ggplot(HannahEdUEnuc5dpf, aes(x= Innerv, y= Ratio))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.7, width=0.3)+
+  facet_wrap(~dpf, strip.position = "top", scales = "free_x")+
+  xlab("Innervation Status")+
+  ylab("Ratio of EdU+ Cells")+
+  ylim(-0.15,0.65) 
+
+print(TectumF3P2_HannahEdUEnuc5d)
+```
+
+### F3P2 Stats
+```{r, echo=FALSE}
+#Summary Statistics (n, mean, SD)
+group_by(HannahEdUEnuc5dpf, Innerv, dpf) %>%
+  dplyr::summarise(
+    count = n(),
+    mean = mean(Ratio, na.rm = TRUE),
+    median = median(Ratio, na.rm = TRUE),
+    sd = sd(Ratio, na.rm = TRUE))
+```
+```{r, echo=FALSE}
+#Specify 7 dpf
+S <- HannahEdUEnuc5dpf$dpf == "7 dpf"
+HannahEdUEnuc5dpf[S,]
+#Specify 9 dpf
+HannahEdUEnuc5dpf[!S,]
+```
+```{r, echo=FALSE}
+#Check Data before t-test
+#T-test assumptions: random representative collection, appropriate sample size, normal distribution (Shapiro–Wilk test vs Q-Q plots), and homogeneity of variance 
+with(HannahEdUEnuc5dpf[S,], shapiro.test(Ratio[Innerv == "one-eyed"])) #p-value = 0.4428
+with(HannahEdUEnuc5dpf[S,], shapiro.test(Ratio[Innerv == "one-eyed"])) #p-value = 0.4428
+with(HannahEdUEnuc5dpf[S,], shapiro.test(Ratio[Innerv == "intact"])) #p-value = 0.95
+with(HannahEdUEnuc5dpf[!S,], shapiro.test(Ratio[Innerv == "one-eyed"])) #p-value = 0.1621
+with(HannahEdUEnuc5dpf[!S,], shapiro.test(Ratio[Innerv == "intact"])) #p-value = 0.2201
+#p-value > 0.05 implies that the distribution of the data are not significantly different from normal distribution.
+```
+```{r, echo=FALSE}
+qqnorm(RouseTUNEL[X,]$Ratio, pch = 1, frame = FALSE)
+qqline(RouseTUNEL[X,]$Ratio, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+qqnorm(RouseTUNEL[S,]$Ratio, pch = 1, frame = FALSE)
+qqline(RouseTUNEL[S,]$Ratio, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+qqnorm(RouseTUNEL[N,]$Ratio, pch = 1, frame = FALSE)
+qqline(RouseTUNEL[N,]$Ratio, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+# Variance Testing
+# F-test is very sensitive to departure from the normal assumption. If there is doubt about normality, the better choice is to use Levene’s test or Fligner-Killeen test, which are less sensitive.
+# However, we will be using Welch's t-test which assumes unequal variance!
+var.test(Ratio ~ Innerv, data = HannahEdUEnuc5dpf[S,]) #p-value = 0.1517
+var.test(Ratio ~ Innerv, data = HannahEdUEnuc5dpf[!S,]) #p-value = 0.001038    *
+#p-value > 0.05 implies that the variances are not significantly different from each other
+```
+```{r, echo=FALSE}
+#Hedges test for 7 dpf
+hedges_g(Ratio ~ Innerv, data = HannahEdUEnuc5dpf[S,])
+#Hedges test for 9 dpf
+hedges_g(Ratio ~ Innerv, data = HannahEdUEnuc5dpf[!S,])
+```
+
+```{r, echo=FALSE}
+# 1. Fit a standard Gaussian GLM
+HannahEdUEnuc5dpf$Innerv <- factor(HannahEdUEnuc5dpf$Innerv, levels = c("intact", "one-eyed"))  
+HannahEdUEnuc5dpf$dpf <- factor(HannahEdUEnuc5dpf$dpf, levels = c("7 dpf", "9 dpf"))
+fit_innervEdU <- gam(Ratio ~ Innerv * dpf, 
+                  family = gaussian(link = "identity"), 
+                  data = HannahEdUEnuc5dpf)
+
+# 2. Check the Model Summary
+summary(fit_innervEdU)
+anova(gam(Ratio ~ 1, data = HannahEdUEnuc5dpf), fit_innervEdU, test = "F")   # overall test statistic
+
+# 3. Pairwise post-hoc tests with Bonferroni-Holm adjustment
+pairwise_results_innervEdU <- emmeans(fit_innervEdU, pairwise ~ Innerv | dpf, type = "response")
+summary(pairwise_results_innervEdU$contrasts, adjust = "Holm", by = NULL)
+
+# View the adjusted p-values
+#pairwise_results_innerv$contrasts
+
+```
+
+## Now remake plot with relevant stats added
+```{r}
+stat_manual_EdUInnerv <-tibble::tribble(
+  ~dpf, ~group1,~group2,~p.adj,
+  "7 dpf", "intact", "one-eyed", 0.091,
+  "9 dpf","intact","one-eyed", 0.0001
+) %>%
+  mutate(
+    dpf = factor(dpf, levels = c("7 dpf", "9 dpf")),
+    p.adj.signif = case_when(
+      p.adj < 0.0001 ~ "***",
+      p.adj < 0.001 ~ "**",
+      p.adj < 0.01  ~ "*",
+      p.adj < 0.05  ~ "",
+      TRUE          ~ "ns"
+    ),
+    y.position = 0.65   # adjust based on your error bar heights per facet
+  )
+
+#Now make box plot with stats
+TectumF3P2_HannahEdUEnuc5d <- ggplot(HannahEdUEnuc5dpf, aes(x= Innerv, y= Ratio))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.7, width=0.3)+
+  facet_wrap(~dpf, strip.position = "top", scales = "free_x")+
+  xlab("Innervation Status")+
+  ylab("EdU Ratio [(L-R)/Total]")+
+  ylim(-0.15,0.68)+
+  stat_pvalue_manual(stat_manual_EdUInnerv, label = "p.adj.signif", 
+                     xmin = "group1",
+                     xmax = "group2",
+                     y.position = "y.position")
+
+print(TectumF3P2_HannahEdUEnuc5d)
+```
+
+```{r, echo=FALSE}
+ggsave("TTectumF3P2_HannahEdUEnuc5d_revised.png", TectumF3P2_HannahEdUEnuc5d, path=NULL, 
+         scale = 1, width = 12, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```

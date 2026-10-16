@@ -1,0 +1,744 @@
+---
+title: "9_Tectal Growth Supplemental File Stats revised and compiled"
+author: "Kara"
+date: "2026-09-24"
+output: html_document
+---
+
+```{r setup, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(plyr) #plyr is required for Rmisc, want to load it before dplyr (in tidyverse)
+library(tidyverse)
+library(ggbeeswarm)
+library(ggpubr)
+library(openxlsx)
+library(Rmisc)
+library(rstatix)
+library(knitr)
+library(effectsize)
+library(car)
+library(ggprism)  ## Do you need this? Is this the best order?
+library(patchwork)  ## Do you need this? Is this the best order?
+library(dplyr)
+library(readr)
+library(tidyr)
+library(broom)
+library(mgcv)
+library(emmeans)
+library(rcompanion)
+
+theme_set(theme_bw()+
+            theme(panel.spacing = unit(0, "lines"), 
+                  strip.background = element_blank(), strip.placement = "outside")+
+            theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+                panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+            theme(text = element_text(size = 16)))
+```
+
+##S1P1: Total number of TUNEL+ spots in neuropil of one-eyed versus WT at 6 dpf
+```{r}
+#load the data
+TUNEL_neuropil <- read.csv("/Users/cervenyk/Documents/Fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figures_Supplemental/TotalTUNEL_inc_neuropil_6dpf.csv")
+
+neuropil_plot <-ggplot(TUNEL_neuropil) +
+  aes(x = Innerv, y = Total_neuropil) +
+  geom_boxplot(outlier.shape =NA, ) +
+  #geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.7, width=0.3)+
+  geom_point(color = "black", fill = "gray", pch = 21, size = 2.5, alpha = 0.8, position = position_jitter(width =0.2, height =0)) +
+  scale_fill_manual(values=c("black", "gray"))+
+  xlab("")+
+  ylab("Total neuropil TUNEL+ spots")+
+  ylim(0, 100)+
+  stat_compare_means(
+    comparisons = list(c("intact", "one-eyed")), 
+    method="t.test", 
+    label = "p.signif") #p.signif here will give you ** or n.s.
+
+print(neuropil_plot)
+```
+
+```{r}
+ggsave("neuropil_plot.png", neuropil_plot, path=NULL,
+       scale = 1, width = 14, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+```{r}
+#summary statistics
+TUNEL_neuropil %>%
+  group_by(Innerv) %>%
+  summarise(
+    n = n(),
+    mean_L = mean(`TUNEL.neuropil.side.L`),
+    median_L = median(`TUNEL.neuropil.side.L`),
+    sd_L = sd(`TUNEL.neuropil.side.L`),
+    mean_R = mean(`TUNEL.neuropil.side.R`),
+    median_R = median(`TUNEL.neuropil.side.R`),
+    sd_R = sd(`TUNEL.neuropil.side.R`),
+    mean_total_neuropil = mean(Total_neuropil),
+    median_total_neuropil = median(Total_neuropil),
+    sd_total_neuropil = sd(Total_neuropil),
+    .groups = "drop"
+    #having the groups ="drop" at the end returns the grouping to the way it was originally
+  )
+```
+
+```{r}
+t.test(Total_neuropil ~ Innerv, data = TUNEL_neuropil, exact = FALSE, conf.int = TRUE)
+
+```
+#S1P2 - paired analysis of TUNEL+ spots on right and left in one-eyed larvae
+```{r, echo=FALSE}
+#(re)load data
+TUNEL_neuropil<-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figures_Supplemental/TotalTUNEL_inc_neuropil_6dpf.csv")
+View(TUNEL_neuropil)
+
+#neuropil L v R TUNEL+ cells
+#first reshape data
+TUNEL_neuropil1 <- TUNEL_neuropil %>%
+  pivot_longer(cols = c("TUNEL.neuropil.side.L", "TUNEL.neuropil.side.R"),
+               names_to = "neuropil_side",
+               values_to = "TUNEL_neuropil_side")%>%
+  mutate(neuropil_side = case_when(neuropil_side =="TUNEL.neuropil.side.L" ~"left", neuropil_side == "TUNEL.neuropil.side.R" ~"right"))%>%
+  mutate(neuropil_side = factor(neuropil_side, levels = c("left", "right")))
+View(TUNEL_neuropil1)
+
+```
+
+#run paired t-test for sides within each one-eyed and intact brain
+```{r}
+run_paired_ttest <- function(data, group) {
+  wide_data <- data %>%
+    filter(Innerv == group) %>%
+    dplyr::select(Embryo, neuropil_side, TUNEL_neuropil_side) %>%
+    pivot_wider(names_from = neuropil_side, values_from = TUNEL_neuropil_side)
+  
+  t.test(wide_data$left, wide_data$right, paired = TRUE)
+}
+
+one_eyed_ttest <- run_paired_ttest(TUNEL_neuropil1, "one-eyed")
+intact_ttest   <- run_paired_ttest(TUNEL_neuropil1, "intact")
+
+print("One-eyed group: Paired t-test results")
+print(one_eyed_ttest)
+
+print("Intact group: Paired t-test results")
+print(intact_ttest)
+```
+##Plot showing paired nature of data points
+```{r}
+neuropilside_plot_paired <- ggplot(TUNEL_neuropil1) +
+  aes(x = neuropil_side, y = TUNEL_neuropil_side) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+  facet_wrap(~Innerv, strip.position = "bottom", scales = "free_x") +
+  # Add lines connecting paired points (using Embryo as the grouping variable)
+  geom_line(aes(group = interaction(Embryo, Innerv)), color = "gray60", alpha = 0.6, linewidth = 0.4, linetype = "dashed") +
+  # Add points on top of lines
+  #geom_point(color = "black", fill = "gray", pch = 21, size = 2.5, alpha = 0.8, position = position_jitter(width =0.02, height =0)) +
+  geom_beeswarm(color = "black", fill = "gray", pch = 21, size = 2.5, alpha = 0.8)+
+  xlab("") +
+  ylab("TUNEL+ spots per neuropil") +
+  ylim(0, 48) +
+  stat_compare_means(
+    comparisons = list(c("left", "right")), 
+    method = "t.test", paired = TRUE, 
+    label = "p.signif" #"p" will print actual p-value
+  )
+print(neuropilside_plot_paired)
+```
+
+```{r}
+ggsave("neuropilside_plot_paired_ns.png", neuropilside_plot_paired, path=NULL, 
+         scale = 1, width = 14, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+###S2P1 box plots of EdU chased into HuC
+```{r}
+SHdata <- read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/EdU_pulsechase_HuC/SH_Thesis Data_copy.csv")
+View(SHdata)
+
+SHdata$dpf <-factor(SHdata$dpf, levels = c("8", "10", "12")) #comment this line out when running lm so that dpf is numerical
+SHdata$geno <- factor(SHdata$geno, levels = c("WT", "LAK"))
+
+```
+
+```{r}
+#stat manual values from below
+stat_manualSH <-tibble::tribble(
+  ~dpf, ~group1,  ~group2,  ~p.adj,
+  "8",  "WT",    "LAK",  0.0045,
+  "10",   "WT",    "LAK",  0.0015,
+  "12", "WT", "LAK", 0.0027
+) %>%
+  mutate(
+    dpf = factor(dpf, levels = c("8", "10", "12")),
+    p.adj.signif = case_when(
+      p.adj < 0.001 ~ "***",
+      p.adj < 0.01  ~ "**",
+      p.adj < 0.05  ~ "*",
+      TRUE          ~ "ns"
+    ),
+    y.position = 0.98   # adjust based on your beeswarm/error bar heights per facet
+  )
+```
+
+```{r}
+#proportion over time boxplot from Sara H
+plot1 <- ggplot(SHdata, aes(x = geno, y= proportion))+
+  geom_boxplot(outlier.shape =NA)+
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.7, width=0.3)+
+    facet_wrap(~dpf, strip.position = "top", scales = "free_x", nrow=1,
+               labeller = labeller(dpf = c("8" = "6 h post EdU pulse", "10" = "2 d post EdU pulse", "12" = "4 d post EdU pulse")))+theme(strip.text.x = element_text(size=11))+
+  labs(x= "Genotype", y= "Proportion (EdU+HuC+) / Edu+ ") +
+  scale_x_discrete(labels=expression(WT, italic(lak)))+
+  ylim (0, 1)+
+  stat_pvalue_manual(stat_manualSH, label = "p.adj.signif", xmin = "group1", xmax = "group2", y.position = "y.position")
+  
+  
+  #geom_pwc(method = "wilcox.test")
+#plot1_revised <- ggadjust_pvalue(plot1, p.adjust.method = "holm", label = "p.adj.signif") #"p.adj" here will give you the values
+  #OR
+ #stat_compare_means(comparisons = list(c("WT", "LAK")),method = "wilcox.test", label = "p.signif")
+            
+plot1
+
+```
+
+```{r, echo=FALSE}
+ggsave("TectumF9_full_EdUHuCproportion_revised.png", plot1, path=NULL, 
+         scale = 1, width = 16, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+```{r, echo=FALSE}
+
+# summary stats
+group_by(SHdata, geno, dpf) %>%
+  dplyr::summarise(count= n(),
+    mean = mean(total_edu, na.rm = TRUE),
+    median = median(total_edu, na.rm = TRUE),
+    sd = sd(total_edu, na.rm = TRUE))
+
+```
+```{r, echo=FALSE}
+# 1. Fit the beta Regression Model
+# The logit link naturally handles variance that scales with the mean
+mod_EdUHuC  <- gam(proportion ~ geno * dpf, family = betar(link = "logit"), data = SHdata)
+mod_EdUHuC0 <- gam(proportion ~ 1, family = betar(link = "logit"), data = SHdata)
+
+# 2. Check the Model Summary for Interaction Effects
+summary(mod_EdUHuC)
+anova(mod_EdUHuC0, mod_EdUHuC, test = "F")   # overall test
+AIC(mod_EdUHuC0, mod_EdUHuC)
+
+# 3. Post-Hoc Comparisons
+emm_EdUHuC <- emmeans(mod_EdUHuC, ~ geno | dpf, type = "response")
+cons_EdUHuC <-contrast(emm_EdUHuC, "revpairwise", by = "dpf")
+summary(cons_EdUHuC, adjust = "holm", by = NULL)
+
+```
+###S2P2 - linear models output
+```{r}
+#reload data and make sure that dpf is numerical
+SHdata <- read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/EdU_pulsechase_HuC/SH_Thesis Data_copy.csv")
+View(SHdata)
+
+#SHdata$dpf <-factor(SHdata$dpf, levels = c("8", "10", "12")) - need to comment this out so that dpf are numerical otherwise lm won't work.
+SHdata$geno <- factor(SHdata$geno, levels = c("WT", "LAK"))
+
+```
+##Changes in proportion overtime
+```{r, echo=FALSE}
+fit1=lm(proportion ~ geno+dpf, data=SHdata)
+summary(fit1)
+
+#ggplot(SHdata,aes(y=proportion, x=dpf,color=factor (geno)))+geom_point()+stat_smooth(method="lm",se=TRUE)
+
+ggplot(SHdata,aes(y=proportion,x=dpf,color=geno)) + geom_point() + stat_smooth(method = "lm", se=TRUE) +  
+  labs(x= "Age (dpf)", y= "Proportion (EdU+HuC+) / Edu+")
+```
+
+```{r, echo=FALSE}
+ggsave("TectumF9_full_linear_proportion.png")
+```
+
+##Changes in total HuC_EdU+ cells overtime
+```{r, echo=FALSE}
+fit1=lm(total_huc_edu ~ geno+dpf, data=SHdata)
+summary(fit1)
+
+#ggplot(SHdata,aes(y=proportion, x=dpf,color=factor (geno)))+geom_point()+stat_smooth(method="lm",se=TRUE)
+
+ggplot(SHdata,aes(y=total_huc_edu,x=dpf,color=geno)) + geom_point() + stat_smooth(method = "lm", se=TRUE) +
+   labs(x= "Age (dpf)", y= "Total EdU HuC double positive cells")
+```
+
+```{r, echo=FALSE}
+ggsave("TectumF9_full_totalHuC_EdU.png")
+```
+
+##Changes in total EdU overtime
+```{r, echo=FALSE}
+fit1=lm(total_edu ~ geno+dpf, data=SHdata)
+summary(fit1)
+
+#ggplot(SHdata,aes(y=proportion, x=dpf,color=factor (geno)))+geom_point()+stat_smooth(method="lm",se=TRUE)
+
+
+ggplot(SHdata,aes(y=total_edu,x=dpf,color=geno)) + geom_point() + stat_smooth(method = "lm", se=TRUE) +
+   labs(x= "Age (dpf)", y= "Total EdU+ cells ")
+```
+
+```{r, echo=FALSE}
+ggsave("TectumF9_full_totalEdU_withlegend.png")
+```
+
+
+###S3 - midbrain volume (from Cam)
+### Cam Lak Midbrain Volume
+```{r, echo=FALSE}
+LakMidbrain<-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figures_Supplemental/CamLakMidbrainVolume.csv")
+View(LakMidbrain)
+```
+```{r, echo=FALSE}
+LakMidbrain$Genotype<-factor(LakMidbrain$Genotype,
+                             levels=c("WT", "lak"))
+
+# summary stats
+group_by(LakMidbrain, Genotype) %>%
+  dplyr::summarise(count= n(),
+    mean = mean(Volume, na.rm = TRUE),
+    median = median(Volume, na.rm = TRUE),
+    sd = sd(Volume, na.rm = TRUE))
+```
+
+```{r, echo=FALSE}
+t.test(Volume ~Genotype, data = LakMidbrain, exact = FALSE, conf.int = TRUE) 
+wilcox.test (Volume ~Genotype, data = LakMidbrain, exact = FALSE, conf.int = TRUE)
+```
+##PLOT
+```{r, echo=FALSE}
+SuppFigLakMidbrain <- ggplot(LakMidbrain, aes(x= Genotype, y= Volume))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.7, width=0.3)+
+  #ylim(0,0)+       #changing this makes y-axis values non-exponential/ affects spacing
+  scale_x_discrete(labels=expression(WT, italic(lak)))+
+  xlab("Genotype")+
+  ylab(bquote('DAPI-stained volume '(µm^3)))+ 
+  stat_compare_means(
+    comparisons = list(c("WT", "lak")), 
+    method="t.test",
+    label = "p.signif")
+
+print(SuppFigLakMidbrain)
+```
+```{r, echo=FALSE}
+ggsave("SuppFigLakMidbrain_revised.png", SuppFigLakMidbrain, path = NULL, scale = 1, width = 16, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+###S4 - body length
+##Looks like Elaine kept track of batches so try SuperPlot here:
+```{r, echo=FALSE}
+BodyLength<-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figures_Supplemental/ElaineFishLength.csv")
+View(BodyLength)
+
+```
+```{r, echo=FALSE}
+#first change column name of "Group" to "Batch" and make sure that the numbers aren't read as continuous.
+BodyLength <- BodyLength %>%
+  rename(Batch_length = Group) %>%
+  mutate(Batch_length = factor(Batch_length))
+
+SuperLength <- BodyLength %>% group_by(Innerv, LvD, Batch_length) %>% 
+  summarise(across(where(is.numeric), mean), .groups = "drop")
+SuperLength
+SuperLengthSummary <- summarySE(SuperLength, measurevar="Size", groupvars=c("LvD","Innerv"))
+SuperLengthSummary
+
+```
+
+```{r, echo=FALSE}
+group_by(SuperLength, LvD, Innerv) %>%
+  summarise(
+    count = n(),
+    mean = mean(Size, na.rm = TRUE),
+    median = median(Size, na.rm = TRUE),
+    sd = sd(Size, na.rm = TRUE))
+```
+```{r, echo=FALSE}
+#Specify light condition
+L <- SuperLength$LvD == "light"
+SuperLength[L,]
+#Specify dark condition
+SuperLength[!L,]
+#Specify intact condition
+E <- SuperLength$Innerv == "intact"
+SuperLength[E,]
+#Specify enucleated condition
+SuperLength[!E,]
+```
+```{r, echo=FALSE}
+#Before anova, you have to (1) check for normal distribution and (2) check for equal variance
+# Check for normal distribution
+with(SuperLength[L,], shapiro.test(Size[Innerv == "intact"])) #p-value = 0.1954
+with(SuperLength[L,], shapiro.test(Size[Innerv == "one-eyed"])) #p-value = 0.3634
+with(SuperLength[!L,], shapiro.test(Size[Innerv == "intact"])) #p-value = 0.1896
+with(SuperLength[!L,], shapiro.test(Size[Innerv == "one-eyed"])) #p-value = 0.8836
+#p-value > 0.05 implies that the distribution of the data are not significantly different from normal distribution.
+```
+
+```{r, echo=FALSE}
+# Variance test
+leveneTest(Size ~ Innerv*LvD, data = SuperLength) #p-value = 0.3916
+#p-value > 0.05 implies that the variances are not significantly different from each other
+```
+
+```{r, echo=FALSE}
+#SUPER ANOVA & Tukey for Super Plot Length LvD --> only batch means
+aov.SuperLengthLvD <- aov(Size ~ Innerv * LvD, data = SuperLength)
+summary(aov.SuperLengthLvD)
+TukeyHSD(aov.SuperLengthLvD, which = "Innerv:LvD")
+```
+
+```{r, echo=FALSE}
+omega_squared(aov.SuperLengthLvD,
+  #partial = FALSE,
+  ci = 0.95,
+  alternative = "greater",
+  verbose = TRUE)
+```
+
+```{r, echo=FALSE}
+#need this for the stats on the SuperPlot
+stat_manual_length <-tibble::tribble(
+  ~LvD,     ~group1,     ~group2,     ~p.adj,
+  "light",  "intact",    "one-eyed",  0.212,
+  "dark",   "intact",    "one-eyed",  0.862
+) %>%
+  mutate(
+    LvD = factor(LvD, levels = c("light", "dark")),
+    p.adj.signif = case_when(
+      p.adj < 0.001 ~ "***",
+      p.adj < 0.01  ~ "**",
+      p.adj < 0.05  ~ "*",
+      TRUE          ~ "ns"
+    ),
+    y.position = 7.9   # adjust based on your beeswarm/error bar heights per facet
+  )
+```
+
+```{r, echo=FALSE}
+BodyLength$LvD <- factor(BodyLength$LvD,
+                          levels = c("light", "dark"))
+SuperLength$LvD <- factor(SuperLength$LvD,
+                           levels = c("light", "dark"))
+SuperLengthSummary$LvD <- factor(SuperLengthSummary$LvD,
+                                  levels = c("light", "dark"))
+
+BodyLength$Innerv <- factor(BodyLength$Innerv,
+                             levels = c("intact", "one-eyed"))
+SuperLength$Innerv <- factor(SuperLength$Innerv,
+                              levels = c("intact", "one-eyed"))
+SuperLengthSummary$Innerv <- factor(SuperLengthSummary$Innerv,
+                                     levels = c("intact", "one-eyed"))
+```
+
+```{r, echo=FALSE}
+Supp_LengthLLvD <- ggplot(SuperLength, aes(x = Innerv, y = Size)) + 
+  geom_beeswarm(data = BodyLength, cex = 2, size = 1.5, alpha = 0.5, dodge.width = 0.65, aes(shape = Batch_length, fill = Batch_length))+
+  geom_beeswarm(cex = 3.5, size = 3, alpha = 0.95, dodge.width = 0.25, aes(shape = Batch_length, fill = Batch_length)) + 
+  scale_shape_manual(values = c(21, 22, 23, 24, 25, 21, 22)) +
+  scale_fill_manual(values = c("#E69F00", "#56B4E9", "#CC79A7", "#009E73", "#0072B2", "#F0E442", "#D55E00")) +
+  facet_wrap(~LvD, strip.position = "top", scales = "free_x") +
+  xlab("Innervation Status") +
+  ylab("Body Length") +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))) +
+  geom_errorbar(data = SuperLengthSummary, aes(ymin = Size - se, ymax = Size + se), size = 0.7, width = .15) +
+  stat_summary(data = SuperLength, aes(x = Innerv, y = Size), fun = median, 
+               geom = "crossbar", width = 0.3, size = 0.25) +
+  stat_pvalue_manual(stat_manual_length, label = "p.adj.signif", 
+                     xmin = "group1", 
+                     xmax = "group2",
+                     y.position = "y.position")
+
+print(Supp_LengthLLvD)
+```
+```{r, echo=FALSE}
+ggsave("Supp_LengthLLvD_batched_revised_p_values.png", Supp_LengthLLvD, path = NULL, scale = 1, width = 16, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+         
+```
+
+
+###S5 - Dark rearing and eye extirpation effects on brain size (ns)
+### DAPI Midbrain Volume in Intact and One-Eyed
+```{r, echo=FALSE}
+DAPIVol<-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figures_Supplemental/DAPIVol.csv")
+View(DAPIVol)
+```
+## DAPIVol Statistics
+```{r, echo=FALSE}
+group_by(DAPIVol, Innerv, LvD) %>%
+  summarise(
+    count = n(),
+    mean = mean(Volume, na.rm = TRUE),
+    sd = sd(Volume, na.rm = TRUE))
+```
+```{r, echo=FALSE}
+#Specify light condition
+L <- DAPIVol$LvD == "light"
+DAPIVol[L,]
+#Specify dark condition
+DAPIVol[!L,]
+#Specify intact condition
+E <- DAPIVol$Innerv == "intact"
+DAPIVol[E,]
+#Specify enucleated condition
+DAPIVol[!E,]
+```
+```{r, echo=FALSE}
+#Before anova, you have to (1) check for normal distribution and (2) check for equal variance
+# Check for normal distribution
+with(DAPIVol[L,], shapiro.test(Volume[Innerv == "intact"])) #p-value = 0.695   
+with(DAPIVol[L,], shapiro.test(Volume[Innerv == "one-eyed"])) #p-value = 0.3793
+with(DAPIVol[!L,], shapiro.test(Volume[Innerv == "intact"])) #p-value = 0.5615 
+with(DAPIVol[!L,], shapiro.test(Volume[Innerv == "one-eyed"])) #p-value = 0.3778
+#p-value > 0.05 implies that the distribution of the data are not significantly different from normal distribution.
+```
+```{r, echo=FALSE}
+qqnorm(DAPIVol[L,]$Volume, pch = 1, frame = FALSE)
+qqline(DAPIVol[L,]$Volume, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+qqnorm(DAPIVol[!L,]$Volume, pch = 1, frame = FALSE)
+qqline(DAPIVol[!L,]$Volume, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+qqnorm(DAPIVol[E,]$Volume, pch = 1, frame = FALSE)
+qqline(DAPIVol[E,]$Volume, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+qqnorm(DAPIVol[!E,]$Volume, pch = 1, frame = FALSE)
+qqline(DAPIVol[!E,]$Volume, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+# Variance test
+leveneTest(Volume ~ Innerv*LvD, data = DAPIVol) #p-value = 0.8401
+#p-value > 0.05 implies that the variances are not significantly different from each other
+```
+```{r, echo=FALSE}
+# Two-way ANOVA
+DAPIVolANOVA <- aov(Volume ~ Innerv * LvD, data = DAPIVol)
+summary(DAPIVolANOVA)
+TukeyHSD(DAPIVolANOVA, which = "Innerv:LvD")
+```
+```{r, echo=FALSE}
+omega_squared(DAPIVolANOVA,
+  #partial = FALSE,
+  ci = 0.95,
+  alternative = "greater",
+  verbose = TRUE)
+```
+```{r, echo=FALSE}
+#Hedges test for light conditions 
+hedges_g(Volume ~ Innerv, data = DAPIVol[L,])
+#Hedges test for dark conditions 
+hedges_g(Volume ~ Innerv, data = DAPIVol[!L,])
+#Hedges test for intact conditions 
+hedges_g(Volume ~ LvD, data = DAPIVol[E,])
+#Hedges test for enucleated conditions 
+hedges_g(Volume ~ LvD, data = DAPIVol[!E,])
+```
+```{r, echo=FALSE}
+DAPIVol$LvD<-factor(DAPIVol$LvD,
+                    levels=c("light", "dark"))
+```
+```{r, echo=FALSE}
+SuppFigDAPIVol <- ggplot(DAPIVol, aes(x= Innerv, y= Volume))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.7, width=0.3)+
+  facet_wrap(~LvD, strip.position = "top", scales = "free_x")+
+  #ylim(1.2e06,8.7e06)+
+  xlab("Innervation Status")+
+  ylab(bquote('DAPI-stained volume '(µm^3)))+ 
+  geom_pwc(method = "t.test",
+             label = "p.adj.signif")
+print(SuppFigDAPIVol)
+```
+```{r, echo=FALSE}
+ggsave ("SuppFigDAPIVol_LvD.png", SuppFigDAPIVol, path=NULL, 
+        scale = 1, width = 12, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+###S6 Total number of dying and proliferating cells for intact larvae LvD
+
+## Part 1: Total number of TUNEL+ cells in lakritz mutants and wild-type siblings
+```{r, echo=FALSE}
+TUNEL_LD<-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figure_4_L_D_TUNEL_EdU/TUNELLvD_TUNEL_sup_compare.csv")
+#View(TUNEL_LD)
+```
+### Part 1 Graph
+```{r, echo=FALSE}
+TUNEL_LD$LvD<-factor(TUNEL_LD$LvD,
+                           levels=c("light", "dark"))
+```
+
+```{r, echo=FALSE}
+TectumLvD_TUNEL <- ggplot(TUNEL_LD, aes(x= LvD, y= Total))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_point(color = "black", fill = "gray", pch = 21, size = 2.5, alpha = 0.8, position = position_jitter(width =0.1, height =0)) +
+  scale_fill_manual(values=c("black", "gray"))+
+  xlab("Condition")+
+  ylab("Total Number of TUNEL+ Cells")+
+  ylim(0, 160)+
+  geom_pwc(method = "wilcox.test", label = "p.signif")
+  
+  
+  #stat_compare_means(comparisons = list(c("light", "dark")), method="t.test", p.adjust.methods="holm",label = "p.signif") #p.adjust here will give you the p.adj value instead of *
+
+print(TectumLvD_TUNEL)
+```
+
+```{r, echo=FALSE}
+ggsave("Tectum_suppl_LvD_TUNEL.png", TectumLvD_TUNEL, path=NULL, 
+         scale = 1, width = 14, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+
+```{r, echo=FALSE}
+#summary stats for EdULvD
+group_by(TUNEL_LD, LvD) %>%
+  dplyr::summarise(
+    count = n(),
+    mean = mean(Total, na.rm = TRUE),
+    median = median(Total, na.rm = TRUE),
+    sd = sd(Total, na.rm = TRUE))
+
+```
+
+```{r}
+t.test(Total ~ LvD, data = TUNEL_LD, exact = FALSE, conf.int. = TRUE)
+```
+
+```{r}
+hedges_g(Total ~ LvD, data = TUNEL_LD)
+```
+
+## Part 2: Total number of EdU+ cells in lakritz wild-type siblings in light and dark conditions
+```{r, echo=FALSE}
+EdU_LD<-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/TectumF5P2_ intact dark v light totals.csv")
+View(EdU_LD)
+```
+### Part 2 Graph
+```{r, echo=FALSE}
+EdU_LD$LvD<-factor(EdU_LD$LvD,
+                           levels=c("light", "dark"))
+```
+
+```{r, echo=FALSE}
+TectumLvD_EdU <- ggplot(EdU_LD, aes(x= LvD, y= Total))+
+  geom_boxplot(outlier.shape = NA)+
+    geom_point(color = "black", fill = "gray", pch = 21, size = 2.5, alpha = 0.8, position = position_jitter(width =0.1, height =0)) +
+  scale_fill_manual(values=c("black", "gray"))+
+  xlab("Condition")+
+  ylab("Total Number of EdU+ Cells")+
+  ylim(0, 410)+
+  geom_pwc(method = "wilcox.test", label = "p.signif")
+
+#TectumLvD_EdU_revised <- ggadjust_pvalue(TectumLvD_EdU, p.adjust.method = "holm", label = "p.adj.signif")
+  #stat_compare_means(comparisons = list(c("light", "dark")), method="t.test", p.adjust.methods="holm", label = "p.signif") #p.adjust here will give you the p.adj value instead of *
+
+print(TectumLvD_EdU)
+```
+
+```{r, echo=FALSE}
+ggsave("Tectum_suppl_LvD_EdU.png", TectumLvD_EdU, path=NULL, 
+         scale = 1, width = 14, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+
+```{r, echo=FALSE}
+#summary stats for EdULvD
+group_by(EdU_LD, LvD) %>%
+  dplyr::summarise(
+    count = n(),
+    mean = mean(Total, na.rm = TRUE),
+    median = median(Total, na.rm = TRUE),
+    sd = sd(Total, na.rm = TRUE))
+
+```
+```{r}
+t.test(Total ~ LvD, data = EdU_LD, exact = FALSE, conf.int. = TRUE)
+wilcox.test(Total~ LvD, data = EdU_LD, conf.int.= TRUE)
+```
+
+```{r, echo=FALSE}
+hedges_g(Total ~ LvD, data = EdU_LD)
+```
+
+###S7 - EdU incorporation in XAV939 treated larvae (reviewer request)
+```{r}
+# Load data
+spots <- read.csv("/Users/cervenyk/Documents/Fish data/Tectum_Hannah_Mate_collaboration/0_2026_submission/0_TectalGrowth_Figures for resubmission/XAV939 new Supplemental Fig 7/xav939_reviewer request.csv")
+
+str(spots)
+head(spots)
+```
+
+```{r set-columns}
+# EDIT THESE to match your spreadsheet headers and treatment labels
+
+spots$Spots <- spots$Total  # new name = old name, changed whats in csv to match whats in code
+         
+# The first level is the reference group and appears first on the x-axis
+spots$Treatment <- factor(spots$Treatment,
+                          levels = c("DMSO", "xav939"))
+
+# Drop any rows with a missing count, and confirm there are exactly two groups
+spots <- spots %>% filter(!is.na(Spots), !is.na(Treatment))
+table(spots$Treatment)
+```
+
+## Statistics for xavSpots
+```{r summary-stats}
+# n, mean, median, SD per treatment
+spots %>%
+  group_by(Treatment) %>%
+  dplyr::summarise(
+    count  = n(),
+    mean   = mean(Spots, na.rm = TRUE),
+    median = median(Spots, na.rm = TRUE),
+    sd     = sd(Spots, na.rm = TRUE))
+```
+
+```{r wilcoxon}
+# Wilcoxon rank-sum test for two independent groups.
+# paired = FALSE is the default; do NOT use paired = TRUE unless the same fish is in both groups.
+# Tied counts are common with spot data and trigger a warning about exact p-values;
+# exact = FALSE uses the normal approximation and silences it.
+wilcox.test(Spots ~ Treatment, data = spots, exact = FALSE, conf.int = TRUE)
+
+```
+
+```{r effect-size}
+# Rank-biserial correlation: the effect size that matches a Wilcoxon test
+# (the earlier file used Hedges' g, which assumes roughly normal data)
+rank_biserial(Spots ~ Treatment, data = spots)
+
+# Alternative from rstatix:
+#wilcox_effsize(spots, Spots ~ Treatment)
+```
+
+## Plots for xavSpots
+```{r graph, echo=FALSE}
+
+SpotsPlot <- ggplot(spots, aes(x = Treatment, y = Spots))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(color = "black", fill = "gray", pch = 21, size = 2, alpha = 0.7, width = 0.3)+
+  xlab("Treatment")+
+  ylab("Total Number of EdU+ Cells")+ ylim(-0.09, 80)+
+  geom_pwc(method = "t.test", label = "p.signif")
+
+print(SpotsPlot)
+```
+
+```{r save-plot, echo=FALSE}
+ggsave("SpotsPlot.png", SpotsPlot, path = NULL,
+       scale = 1, width = 10, height = 10, units = "cm", dpi = 300, bg = NULL)
+```

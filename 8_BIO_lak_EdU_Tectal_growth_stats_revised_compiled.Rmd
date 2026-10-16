@@ -1,0 +1,195 @@
+---
+title: "8_BIO_EdU_stats revised and compiled"
+author: "Kara with Jiahe"
+date: "2026-09-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+install.packages ("esquisse")
+install.packages("ggpubr")
+install.packages("ggbeeswarm")
+install.packages("Rmisc")
+install.packages("sjstats")
+install.packages("pwr")
+
+library(tidyverse)
+library(rmarkdown)
+library(ggpubr)
+library(ggsci)
+library(ggsignif)
+library(plyr) #plyr is required for Rmisc
+library(ggbeeswarm) #ggbeeswarm is what we need for superplots
+library(openxlsx)
+library(Rmisc)
+library(rstatix)
+library(knitr)
+library(effectsize)
+library(dplyr)
+library(sjstats)
+library(rcompanion)
+library(emmeans)
+library(MASS)
+```
+
+###F8P1 - EdU +/- BIO on lakritz mutants and their wt siblings
+```{r}
+BIO_EdU <- read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figures 6_7_Wnt tectum figure images/Bio treatments_EdU_summer2022_jiahe.csv")
+
+View(BIO_EdU)
+
+#need to summarise data (n per condition; mean per condition; standard error)
+group_by(BIO_EdU, Genotype, Treatment) %>%
+  dplyr::summarise(count= n(),
+    mean = mean(Total_Spots, na.rm = TRUE),
+    median = median(Total_Spots, na.rm = TRUE),
+    sd = sd(Total_Spots, na.rm = TRUE))
+
+#want to order variables by treatment and genotype:
+BIO_EdU$Genotype <-factor(BIO_EdU$Genotype, levels=c("WT", "lak"))
+BIO_EdU$Treatment <-factor(BIO_EdU$Treatment, levels=c("DMSO", "BIO"))
+
+#organize data so that Treatment and Genotype can be united into a variable called "Condition". Important for plotting
+BIO_EdU_org <-BIO_EdU%>%
+  group_by(Genotype) %>%
+  group_by(Treatment) %>%
+  unite("Condition", Treatment:Genotype, remove=FALSE)
+```
+
+###Generalized linear model - negative binomial. This is like we used for other datasets with counts; no need for dispersion since we don't have age related changes. 
+```{r}
+BIO_EdU$Genotype <-factor(BIO_EdU$Genotype, levels=c("WT", "lak"))
+BIO_EdU$Treatment <-factor(BIO_EdU$Treatment, levels=c("DMSO", "BIO"))
+
+BIO_EdU_model <- glm.nb(Total_Spots ~ Genotype * Treatment, data = BIO_EdU)
+Anova(BIO_EdU_model, type = 2, test = "LR")       # terms
+
+emm_all <- emmeans(BIO_EdU_model, ~ Genotype * Treatment, type = "response")
+tab <- pairs(emm_all, adjust = "tukey", type = "response")     # all 6 pairwise comparisons, corrected together
+tab.ci <- confint(pairs(emm_all, adjust = "tukey", type = "response"))
+
+tab
+tab.ci
+
+```
+###F8P1 Plot with stats signif brackets
+```{r}
+res <- as.data.frame(pairs(emm_all, adjust = "tukey"))
+res$stars <- symnum(res$p.value, corr = FALSE, cutpoints = c(0, .001, .01, .05, 1),
+                     symbols = c("***", "**", "*", "ns"))
+res[, c("contrast", "p.value", "stars")]
+```
+
+```{r}
+BIO_EdU_org$Condition <-factor(BIO_EdU_org$Condition, levels= c("DMSO_WT", "BIO_WT", "DMSO_lak", "BIO_lak"))
+
+plota2 <- ggplot(BIO_EdU_org) +
+  aes(x = Condition, y = Total_Spots) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.8, width=0.3) +
+  theme_bw()+
+  xlab("Treatment_Genotype")+
+  ylab("Total EdU+ Cells")+
+   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(axis.title=element_text(size = 16))+
+  theme(text = element_text(size = 16))+
+  geom_signif(comparisons = list(c("DMSO_WT", "BIO_WT")), annotations = "ns", y_position = 275, tip_length = 0.02, vjust = 0.05)+
+  geom_signif(comparisons = list(c("DMSO_lak", "BIO_lak")), annotations = "***", y_position = 220, tip_length = 0.02, vjust = 0.5)+
+  geom_signif(comparisons = list(c("DMSO_WT", "DMSO_lak")), annotations = "***", y_position = 300, tip_length = 0.02, vjust = 0.5)+
+  geom_signif(comparisons = list(c("DMSO_WT", "BIO_lak")), annotations = "ns", y_position = 325, tip_length = 0.02, vjust = 0.05)+
+  geom_signif(comparisons = list(c("BIO_WT", "DMSO_lak")), annotations = "***", y_position = 240, tip_length = 0.02, vjust = 0.5)+
+  geom_signif(comparisons = list(c("BIO_WT", "BIO_lak")), annotations = "ns", y_position = 260, tip_length = 0.02, vjust = 0.05)
+
+plota2
+```
+```{r}
+ggsave ("plotBIOEdU_nofacet.png", plota2, scale = 1, width = 18, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+###F8P2 - EdU +/- BIO on one-eyed and intact larvae
+```{r}
+BIO_1eye <- read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figures 6_7_Wnt tectum figure images/BIO_EdU_one_eyed_experiment.csv")
+
+View(BIO_1eye)
+
+#need to summarise data (n per condition; mean per condition; standard error)
+group_by(BIO_1eye, Strain, Treatment) %>%
+  dplyr::summarise(count= n(),
+    mean = mean(Ratio, na.rm = TRUE),
+    median = median(Ratio, na.rm = TRUE),
+    sd = sd(Ratio, na.rm = TRUE))
+
+#want to order variables by treatment and innerv_status aka Strain:
+BIO_1eye$Strain <-factor(BIO_1eye$Strain, levels=c("intact", "one_eyed"))
+BIO_1eye$Treatment <-factor(BIO_1eye$Treatment, levels=c("DMSO", "BIO"))
+
+#make a single variable =  condition that combines Innerv status (Strain) and Treatment
+BIO_1eye_org <-BIO_1eye%>%
+  group_by(Strain) %>%
+  group_by(Treatment) %>%
+  unite("Condition", Treatment:Strain, remove=FALSE)
+```
+
+###F8P2 stat model = GLM - gaussian because of ratio that spans between -1 - +1
+```{r}
+#filter data and run model
+BIO_1eye$Strain <-factor(BIO_1eye$Strain, levels=c("intact", "one_eyed"))
+BIO_1eye$Treatment <-factor(BIO_1eye$Treatment, levels=c("DMSO", "BIO"))
+
+model_1eye <- gam(Ratio ~ Strain * Treatment, 
+                  family = gaussian(link = "identity"), data = BIO_1eye)
+#model overall output
+summary(model_1eye)
+anova(gam(Ratio ~ 1, data = BIO_1eye), model_1eye, test = "F")   # overall test statistic
+
+#Pairwise post-hoc tests with Bonferroni-Holm adjustment
+posthoc_all_1eye <- emmeans(model_1eye, ~ Strain * Treatment, type = "response")
+tab_1eye <- pairs(posthoc_all_1eye, adjust = "tukey", type = "response")     # all 6 pairwise comparisons, corrected together
+tab_1eye.ci <- confint(pairs(posthoc_all_1eye, adjust = "tukey", type = "response"))
+tab_1eye
+tab_1eye.ci
+```
+###F8P2 Plot with stats signif brackets
+```{r}
+res1 <- as.data.frame(pairs(posthoc_all_1eye, adjust = "tukey"))
+res1$stars <- symnum(res1$p.value, corr = FALSE, cutpoints = c(0, .001, .01, .05, 1),
+                     symbols = c("***", "**", "*", "ns"))
+res1[, c("contrast", "p.value", "stars")]
+```
+##F8P2 make plot!
+```{r, echo=FALSE}
+#reorder conditions on xaxis
+BIO_1eye_org$Condition <- factor(BIO_1eye_org$Condition, levels = c("DMSO_intact", "BIO_intact", "DMSO_one_eyed", "BIO_one_eyed"))
+
+plotb2 <- ggplot(BIO_1eye_org)+
+  aes(x=Condition, y=Ratio)+
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.8, width=0.3) +
+  theme_bw()+
+  xlab("Treatment and Innervation Status")+
+  ylab("Ratio of EdU+ Cells")+
+   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(axis.title=element_text(size = 16))+
+  theme(text = element_text(size = 16))+
+  
+  geom_signif(comparisons = list(c("DMSO_intact", "BIO_intact")), annotations = "ns", y_position = 0.25, tip_length = 0.02, vjust = 0.05)+
+  geom_signif(comparisons = list(c("DMSO_intact", "DMSO_one_eyed")), annotations = "***", y_position = 0.36, tip_length = 0.02, vjust = 0.5)+
+  geom_signif(comparisons = list(c("DMSO_one_eyed", "BIO_one_eyed")), annotations = "*", y_position = 0.28, tip_length = 0.02, vjust = 0.5)+
+  geom_signif(comparisons = list(c("BIO_intact", "BIO_one_eyed")), annotations = "**", y_position = 0.32, tip_length = 0.02, vjust = 0.5)+
+  geom_signif(comparisons = list(c("DMSO_intact", "BIO_one_eyed")), annotations = "**", y_position = 0.40, tip_length = 0.02, vjust = 0.5)
+
+plotb2
+```
+
+```{r, echo=FALSE}
+ggsave ("plotBIOEdU_one_eyed.png", plotb2, scale = 1, width = 18, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+
+
+
+

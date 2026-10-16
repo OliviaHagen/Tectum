@@ -1,0 +1,357 @@
+---
+title: "7_Wnt_targets and Wnt3a in lakritz revised and compiled"
+author: "Kara Cerveny"
+date: "2026-09-22"
+output: html_document
+---
+
+```{r setup, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(plyr) #plyr is required for Rmisc, want to load it before dplyr (in tidyverse)
+library(tidyverse)
+library(rmarkdown)
+library(ggbeeswarm)
+library(ggplot2)
+library(ggpubr)
+library(ggsci)
+library(ggsignif)
+library(openxlsx)
+library(Rmisc)
+library(rstatix)
+library(knitr)
+library(effectsize)
+library(car)
+library(emmeans)
+library(rcompanion)
+
+theme_set(theme_bw()+
+            theme(panel.spacing = unit(0, "lines"), 
+                  strip.background = element_blank(), strip.placement = "outside")+
+            theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+                panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+            theme(text = element_text(size = 16)))
+```
+
+#F7P1 plots and stats to accompany ISH of Wnt targets and Wnt3a in lakritz mutants
+```{r}
+#load file and check
+Wntinsitulak <-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figures 6_7_Wnt tectum figure images/TectumF6P1_Wntinsitu_lak.csv")
+View(Wntinsitulak)
+```
+### F7P1 Plot
+```{r, echo=FALSE}
+#specify levels for ISH gene and genotype
+Wntinsitulak$Gene<-factor(Wntinsitulak$Gene,
+                         levels=c("axin2", "lef1"))
+Wntinsitulak$Genotype<-factor(Wntinsitulak$Genotype,
+                         levels=c("WT", "lak"))
+```
+#Make box plot
+```{r, echo=FALSE}
+TectumF6P1_Wntinsitu_lak <- ggplot(Wntinsitulak, aes(x=Genotype, y=Area))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.7, width=0.3)+
+  facet_wrap(~Gene, strip.position = "top", scales = "free_x", nrow=1)+
+  theme(strip.text.x = element_text(face="italic"))+
+  xlab("Genotype")+
+  ylab(bquote('Total area gene expression '(µm^2)))+
+  scale_x_discrete(labels=expression(WT, italic(lak)))+
+  ylim(2e+09, 5.7e+09)+
+  stat_compare_means(
+    comparisons = list(c("WT", "lak")), 
+    method="t.test",
+    label = "p.signif")
+
+print(TectumF6P1_Wntinsitu_lak)
+```
+
+```{r, echo=FALSE}
+ggsave ("TectumF6P1_Wntinsitu_lak.png", TectumF6P1_Wntinsitu_lak, path=NULL, 
+        scale = 1, width = 12, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+#Summary stats for area stained by axin2 and lef1 in lak and sibs
+```{r}
+#Summary Statistics (n, mean, SD)
+group_by(Wntinsitulak, Genotype, Gene) %>%
+  summarise(
+    count = n(),
+    mean = mean(Area, na.rm = TRUE),
+    sd = sd(Area, na.rm = TRUE))
+```
+```{r, echo=FALSE}
+#Specify axin2
+A <- Wntinsitulak$Gene == "axin2"
+Wntinsitulak[A,]
+#Specify lef1
+Wntinsitulak[!A,]
+```
+```{r, echo=FALSE}
+#Before t-test, you have to (1) check for normal distribution and (2) check for equal variance
+# Check for normal distribution
+with(Wntinsitulak[A,], shapiro.test(Area[Genotype == "lak"])) #p-value = 0.2694
+with(Wntinsitulak[A,], shapiro.test(Area[Genotype == "WT"])) #p-value = 0.9714
+with(Wntinsitulak[!A,], shapiro.test(Area[Genotype == "lak"])) #p-value = 0.9986
+with(Wntinsitulak[!A,], shapiro.test(Area[Genotype == "WT"])) #p-value = 0.4918
+#p-value > 0.05 implies that the distribution of the data are not significantly different from normal distribution.
+```
+```{r, echo=FALSE}
+qqnorm(Wntinsitulak[A,]$Area, pch = 1, frame = FALSE)
+qqline(Wntinsitulak[A,]$Area, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+qqnorm(Wntinsitulak[!A,]$Area, pch = 1, frame = FALSE)
+qqline(Wntinsitulak[!A,]$Area, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+# Variance Testing
+#We will be using Welch's t-test which assumes unequal variance!
+var.test(Area ~ Genotype, data = Wntinsitulak[A,]) #p-value = 0.4353
+var.test(Area ~ Genotype, data = Wntinsitulak[!A,]) #p-value = 0.9166
+#p-value > 0.05 implies that the variances are not significantly different from each other
+```
+```{r, echo=FALSE}
+# T-Test for comparing 2 variables; data is normally distributed and dataset is sparse; Welch's t.test is recommended. 
+
+# axin
+t.test(Area ~ Genotype, data = Wntinsitulak[A,])
+wilcox.test(Area ~ Genotype, data = Wntinsitulak[A,], exact = FALSE, conf.int = TRUE)
+
+# lef1
+t.test(Area ~ Genotype, data = Wntinsitulak[!A,])
+wilcox.test(Area ~ Genotype, data = Wntinsitulak[!A,], exact = FALSE, conf.int = TRUE)
+
+```
+
+#F7P2: Wnt3a ISH stats quantitation in lak and sibs across ages
+```{r}
+Wnt3a_quant <- read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figures 6_7_Wnt tectum figure images/LakAge_wnt3a_Yehyun_thesis.csv")
+view(Wnt3a_quant)
+
+#need to summarise data (n per condition; mean per condition; standard error/standard deviation)
+group_by(Wnt3a_quant, Genotype, Age) %>%
+  dplyr::summarise(count= n(),
+    median = median(wnt3a_volumeE3, na.rm = TRUE), 
+    mean = mean(wnt3a_volumeE3, na.rm = TRUE),
+    sd = sd(wnt3a_volumeE3, na.rm = TRUE))
+
+#order variables by genotype and age:
+Wnt3a_quant$Genotype <-factor(Wnt3a_quant$Genotype, levels=c("WT", "lak"))
+Wnt3a_quant$Age <-factor(Wnt3a_quant$Age, levels=c("5", "7", "9"))
+```
+#Wnt3a ISH stats
+```{r}
+#run stats Yehyun's way
+stats_Wnt3a <-aov(wnt3a_volumeE3 ~Genotype+ Age +Genotype:Age, data = Wnt3a_quant)
+summary(stats_Wnt3a)
+
+TukeyHSD(stats_Wnt3a, which = "Genotype:Age")
+```
+# but worried about whether the volumes and age are really interacting with each other since it seems like lak is always 2x less than wt; also there is some heteroscedasticity; the DAPI staining wasn't quantified/wasn't uniform enough to make a ratio so ask Claude and Gemini approaches to deal with this since we measured volume and not counts or a ratio that ranges from +/- 1 --> log transform then ANOVA then back transform to keep the tails from having too much weight
+```{r}
+#log transform the volume data to help
+Wnt3a_quant$Age <- factor(Wnt3a_quant$Age)
+modelWnt3a <- lm(log(wnt3a_volume) ~ Genotype * Age, data = Wnt3a_quant)
+
+shapiro.test(resid(modelWnt3a)); car::leveneTest(log(wnt3a_volume) ~ Genotype * Age, data = Wnt3a_quant)
+car::Anova(modelWnt3a, type = 2)
+
+summary(modelWnt3a)
+
+emm <- emmeans(modelWnt3a, ~ Genotype | Age)
+# back-transformed fold-change, lak vs WT, at each age
+summary(contrast(emm, "revpairwise", by = "Age"), adjust = "holm", by = NULL, type = "response")
+
+#to show changes in ages for lak across ages and WT across ages
+m <- lm(log(wnt3a_volume) ~ Genotype * Age, data = Wnt3a_quant)
+
+emm_age <- emmeans(m, ~ Age | Genotype)
+summary(pairs(emm_age), adjust = "holm", type = "response")   # fold-changes, both genotypes
+
+```
+
+##Plot changes in Wnt3a volume across genotypes by age
+```{r}
+#load/reload data
+Wnt3a_quant <- read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figures 6_7_Wnt tectum figure images/LakAge_wnt3a_Yehyun_thesis.csv")
+view(Wnt3a_quant)
+
+#factor data so each level is visible
+Wnt3a_quant$Genotype <-factor(Wnt3a_quant$Genotype, levels=c("WT", "lak"))
+Wnt3a_quant$Age <-factor(Wnt3a_quant$Age, levels=c("5", "7", "9"))
+
+#want to rename age to include dpf
+Wnt3a_quant <- Wnt3a_quant %>% 
+ mutate(Age = case_when(
+  Age == "5" ~ "5_dpf",
+  Age == "7" ~ "7_dpf",
+  Age == "9" ~ "9_dpf", TRUE       ~ as.character(Age)),
+  Age = factor(Age, levels = c("5_dpf", "7_dpf", "9_dpf"))) # Re-factor here!
+ 
+view(Wnt3a_quant)
+
+```
+
+```{r}
+#want to make table for manual p-values from ANOVA post-hoc
+stat_manual_wnt3a <-tibble::tribble(
+  ~Age, ~group1,~group2,~p.adj,
+  "5_dpf", "WT", "lak", 0.0001,
+  "7_dpf", "WT", "lak", 0.0001,
+  "9_dpf","WT","lak", 0.0001
+) %>%
+  mutate(
+    Age = factor(Age, levels = c("5_dpf", "7_dpf", "9_dpf")),
+    p.adj.signif = case_when(
+      p.adj < 0.001 ~ "***",
+      p.adj < 0.01  ~ "**",
+      p.adj < 0.05  ~ "*",
+      TRUE          ~ "ns"
+    ),
+    y.position = 190   # adjust based on your beeswarm/error bar heights per facet
+  )
+```
+
+```{r}
+my_comparisons <- list(c("WT", "lak"))
+
+plot_wnt3a <- ggplot(Wnt3a_quant) +
+  aes(x = Genotype, y = wnt3a_volumeE3) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(color = "black", fill = "gray", pch=21, size = 2, alpha=0.8, width=0.3) +
+  theme_bw() +
+  facet_wrap(~Age, strip.position = "top", scales = "free_x", nrow=1)+
+  theme(panel.spacing = unit(0, "lines"),
+        strip.background = element_blank(),
+        strip.placement = "outside", strip.text.x = element_text())+
+  xlab("Genotype")+
+  (ylab(bquote('wnt3a volume x1000 ' (µm^3))))+
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"), axis.text.x = element_text(face = "italic"))+
+  theme(axis.title=element_text(size = 16))+
+  theme(text = element_text(size = 16)) +
+  stat_pvalue_manual(stat_manual_wnt3a, label = "p.adj.signif", xmin = "group1", xmax = "group2", y.position = "y.position")
+plot_wnt3a
+
+```
+
+```{r}
+ggsave ("plot_Wnt3a.png", plot_wnt3a, scale = 1, width = 12, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+###qPCR of Wnt3a and other Wnt targets (axin2 and sox2)
+```{r, echo=FALSE}
+qPCRWnt3a <-read.csv("/Users/cervenyk/Documents/Fish data/Tectum_Hannah_Mate_collaboration/qPCR_2023/qPCR_wnt_targets_ALL_2023_forR.csv")
+View(qPCRWnt3a)
+```
+
+```{r, echo=FALSE}
+qPCRWnt3aSummary <- summarySE(qPCRWnt3a, measurevar="Relative_Normalized_Expression_Level", groupvars=c("Gene","Genotype"))
+qPCRWnt3aSummary
+```
+
+```{r, echo=FALSE}
+qPCRWnt3a$Gene<-factor(qPCRWnt3a$Gene,
+                        levels=c("wnt3a", "axin2", "sox2"))
+
+qPCRWnt3a$Genotype<-factor(qPCRWnt3a$Genotype,
+                       levels=c("WT", "lak"))
+
+qPCRWnt3aSummary$Gene<-factor(qPCRWnt3aSummary$Gene,
+                        levels=c("wnt3a", "axin2", "sox2"))
+
+qPCRWnt3aSummary$Genotype<-factor(qPCRWnt3aSummary$Genotype,
+                       levels=c("WT", "lak"))
+
+```
+
+```{r, echo=FALSE}
+TectumF7P3_Wnt3aqPCR<- ggplot(qPCRWnt3aSummary, aes(x= Genotype, y= Relative_Normalized_Expression_Level))+
+  geom_bar(stat="identity", aes(fill=Genotype), show.legend=FALSE)+
+  scale_fill_manual(values=c("dark gray", "light gray"))+
+  facet_wrap(~Gene, strip.position = "top", scales = "free_x")+
+  xlab("Genotype")+
+  ylab("Mean Relative Expression")+ 
+  geom_errorbar(data=qPCRWnt3aSummary, 
+                aes(ymin=Relative_Normalized_Expression_Level-ci,
+                    ymax=Relative_Normalized_Expression_Level+ci, width=.15))+
+  theme(strip.text.x = element_text(face="italic"))+
+  theme(axis.text.x = element_text(face="italic"))+
+  ylim(0, 1.52)+
+  stat_compare_means(data=qPCRWnt3a,comparisons = list(c("WT", "lak")), method="t.test", label = "p.signif")
+
+print(TectumF7P3_Wnt3aqPCR)
+```
+
+```{r, echo=FALSE}
+ggsave ("TectumF7P3_Wnt3aqPCR.png", TectumF7P3_Wnt3aqPCR, path=NULL, 
+        scale = 1, width = 14, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+### Part 3 Statistics
+```{r, echo=FALSE}
+#Summary Statistics (n, mean, SD)
+group_by(qPCRWnt3a, Genotype, Gene) %>%
+  summarise(
+    count = n(),
+    mean = mean(Relative_Normalized_Expression_Level, na.rm = TRUE),
+    sd = sd(Relative_Normalized_Expression_Level, na.rm = TRUE))
+```
+```{r, echo=FALSE}
+#Specify axin2
+W <- qPCRWnt3a$Gene == "wnt3a"
+qPCRWnt3a[W,]
+#Specify lef1
+A <- qPCRWnt3a$Gene == "axin2"
+qPCRWnt3a[A,]
+#Specify ccnD1
+S <- qPCRWnt3a$Gene == "sox2"
+qPCRWnt3a[S,]
+```
+
+```{r, echo=FALSE}
+#Before t-test, you have to (1) check for normal distribution and (2) check for equal variance
+# Check for normal distribution
+with(qPCRWnt3a[W,], shapiro.test(Relative_Normalized_Expression_Level[Genotype == "WT"])) 
+with(qPCRWnt3a[W,], shapiro.test(Relative_Normalized_Expression_Level[Genotype == "lak"]))  
+with(qPCRWnt3a[A,], shapiro.test(Relative_Normalized_Expression_Level[Genotype == "WT"])) 
+with(qPCRWnt3a[A,], shapiro.test(Relative_Normalized_Expression_Level[Genotype == "lak"])) 
+with(qPCRWnt3a[S,], shapiro.test(Relative_Normalized_Expression_Level[Genotype == "WT"])) 
+with(qPCRWnt3a[S,], shapiro.test(Relative_Normalized_Expression_Level[Genotype == "lak"])) 
+
+#p-value > 0.05 implies that the distribution of the data are not significantly different from normal distribution.
+```
+
+```{r, echo=FALSE}
+qqnorm(qPCRWnt3a[A,]$Relative_Normalized_Expression_Level, pch = 1, frame = FALSE)
+qqline(qPCRWnt3a[A,]$Relative_Normalized_Expression_Level, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+qqnorm(qPCRWnt3a[L,]$Relative_Normalized_Expression_Level, pch = 1, frame = FALSE)
+qqline(qPCRWnt3a[L,]$Relative_Normalized_Expression_Level, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+qqnorm(qPCRWnt3a[C,]$Relative_Normalized_Expression_Level, pch = 1, frame = FALSE)
+qqline(qPCRWnt3a[C,]$Relative_Normalized_Expression_Level, col = "steelblue", lwd = 2)
+```
+```{r, echo=FALSE}
+# Variance Testing
+var.test(Relative_Normalized_Expression_Level ~ Genotype, data = qPCRWnt3a[W,]) 
+var.test(Relative_Normalized_Expression_Level ~ Genotype, data = qPCRWnt3a[A,])  
+var.test(Relative_Normalized_Expression_Level ~ Genotype, data = qPCRWnt3a[S,]) 
+```
+```{r, echo=FALSE}
+# stat tests comparing 2 variables (welch's t.test = oneway.test, which is default for t.test)
+# data is normally distributed, so use t-test
+
+# wnt3a
+t.test (Relative_Normalized_Expression_Level ~ Genotype, data = qPCRWnt3a[W,], exact = FALSE, conf.int = TRUE) #p=0.02323
+
+# axin2
+t.test(Relative_Normalized_Expression_Level ~ Genotype, data = qPCRWnt3a[A,], exact = FALSE, conf.int = TRUE) #p=0.001423
+
+# sox2
+t.test(Relative_Normalized_Expression_Level ~ Genotype, data = qPCRWnt3a[S,], exact = FALSE, conf.int = TRUE) #p=0.002274
+
+```

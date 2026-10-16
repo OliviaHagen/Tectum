@@ -1,0 +1,266 @@
+---
+title: "4_LightDark_TUNEL_EdU_Tectal_Growth_stats revised"
+date: "2026-09-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(plyr) #plyr is required for Rmisc, want to load it before dplyr (in tidyverse)
+library(magrittr)  ## Do we need this? Is this the best order?
+library(tidyverse)
+library(ggbeeswarm)
+library(ggpubr)
+library(openxlsx)
+library(Rmisc)
+library(rstatix)
+library(knitr)
+library(effectsize)
+library(car)
+library(ggprism)  
+library(patchwork)
+library(lme4)
+library(lmerTest)   # adds p-values via Satterthwaite degrees of freedom
+library(rcompanion)
+library(pbkrtest)
+library(emmeans)
+
+theme_set(theme_bw()+
+            theme(panel.spacing = unit(0, "lines"), 
+                  strip.background = element_blank(), strip.placement = "outside")+
+            theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+                panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+            theme(text = element_text(size = 16)))
+```
+## F4P1: Ratio of TUNEL+ cells in typical light and dark-reared brains
+```{r, echo=FALSE}
+TUNELLvD<-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figure_4_L_D_TUNEL_EdU/TectumF5P1_TUNELLvD.csv")
+View(TUNELLvD)
+```
+### F4P1 summary stats plus SuperPlot
+```{r, echo=FALSE}
+SuperTUNEL <- TUNELLvD %>% group_by(Innerv, LvD, Batch) %>% 
+  summarise(across(where(is.numeric), mean), .groups = "drop")
+SuperTUNEL
+SuperTUNELSummary <- summarySE(SuperTUNEL, measurevar="Ratio", groupvars=c("LvD","Innerv"))
+SuperTUNELSummary
+```
+##Make SuperPlot but first do the stats (see below) and then make the stat_manual table to get stat comparisons on the plot.
+```{r, echo=FALSE}
+TUNELLvD$LvD<-factor(TUNELLvD$LvD,
+                     levels=c("light", "dark"))
+SuperTUNEL$LvD<-factor(SuperTUNEL$LvD,
+                          levels=c("light", "dark"))
+SuperTUNELSummary$LvD<-factor(SuperTUNELSummary$LvD,
+                                 levels=c("light", "dark"))
+TUNELLvD$Innerv<-factor(TUNELLvD$Innerv,
+                      levels=c("intact", "one-eyed"))
+SuperTUNEL$Innerv<-factor(SuperTUNEL$Innerv,
+                        levels=c("intact", "one-eyed"))
+SuperTUNELSummary$Innerv<-factor(SuperTUNELSummary$Innerv,
+                               levels=c("intact", "one-eyed"))
+```
+#From the lme analysis post-hoc testing (Tukey) below. Use to make stat_manual table
+contrast                           estimate     SE df t.ratio p.value
+ intact light - (one-eyed light)      0.2407 0.0502 10   4.791  0.0034
+ intact light - intact dark           0.0897 0.0502 10   1.785  0.3343
+ intact light - (one-eyed dark)       0.3304 0.0711 10   4.650  0.0042
+ (one-eyed light) - intact dark      -0.1510 0.0711 10  -2.125  0.2100
+ (one-eyed light) - (one-eyed dark)   0.0897 0.0502 10   1.785  0.3343
+ intact dark - (one-eyed dark)        0.2407 0.0502 10   4.791  0.0034
+
+Degrees-of-freedom method: kenward-roger 
+P value adjustment: tukey method for comparing a family of 4 estimates 
+
+```{r}
+stat_manual <-tibble::tribble(
+  ~LvD,     ~group1,     ~group2,     ~p.adj,
+  "light",  "intact",    "one-eyed",  0.0034,
+  "dark",   "intact",    "one-eyed",  0.0034
+) %>%
+  mutate(
+    LvD = factor(LvD, levels = c("light", "dark")),
+    p.adj.signif = case_when(
+      p.adj < 0.001 ~ "***",
+      p.adj < 0.01  ~ "**",
+      p.adj < 0.05  ~ "*",
+      TRUE          ~ "ns"
+    ),
+    y.position = 1.15   # adjust based on your beeswarm/error bar heights per facet
+  )
+```
+
+```{r, echo=FALSE}
+TectumF5P1_TUNELLvD <- ggplot(TUNELLvD, aes(x= Innerv, y= Ratio))+ 
+  geom_beeswarm(cex=3.5, size=2, alpha = 0.5, aes(shape = Batch, fill = Batch))+ 
+  geom_beeswarm(data=SuperTUNEL, cex=5, size=6, dodge.width=0.75, aes(shape = Batch, fill = Batch)) + 
+  scale_shape_manual(values = c(21, 24, 22, 23))+
+  scale_fill_manual(values=c("#E69F00", "#56B4E9", "#CC79A7", "#009E73"))+
+  facet_wrap(~LvD, strip.position = "top", scales = "free_x")+
+  xlab("Innervation Status")+
+  ylab("Ratio of TUNEL+ Cells")+
+  ylim(-0.9,1.3)+
+  geom_errorbar(data = SuperTUNELSummary, aes(ymin=Ratio-se, ymax=Ratio+se), size=0.7, width=.15)+
+  stat_summary(data = SuperTUNEL, aes(x = Innerv, y = Ratio), fun = median, 
+               geom = "crossbar", width = 0.3, linewidth = 0.25)+
+   stat_pvalue_manual(stat_manual, label = "p.adj.signif", 
+                     xmin = "group1", 
+                     xmax = "group2",
+                     y.position = "y.position") #defined y.position in the stat_manual chunk above
+
+
+print(TectumF5P1_TUNELLvD)
+```
+
+```{r, echo=FALSE}
+ggsave("TectumF5P1_TUNELLvD_revised.png", TectumF5P1_TUNELLvD, path=NULL, 
+         scale = 1, width = 16, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+statistics are using mixed effects model because of differing sizes of batches
+```{r} 
+# --- use lme4::lmer() explicitly here, NOT the masked lmerTest version ---
+#full model
+lmm.full           <- lme4::lmer(Ratio ~ Innerv * LvD + (1 | Batch), data = SuperTUNEL, REML = FALSE)
+#summary(lmm.full)
+
+# reduced model(s), dropping the interaction term (additive; no interaction effect)
+lmm.noInteraction  <- lme4::lmer(Ratio ~ Innerv + LvD + (1 | Batch), data = SuperTUNEL, REML = FALSE)
+#summary(lmm.noInteraction)
+
+PBmodcomp(lmm.full, lmm.noInteraction, nsim = 1000, seed = 123)
+
+lmm.noInnerv <- lme4::lmer(Ratio ~ LvD + (1 | Batch), data = SuperTUNEL, REML = FALSE)
+lmm.noLvD    <- lme4::lmer(Ratio ~ Innerv + (1 | Batch), data = SuperTUNEL, REML = FALSE)
+
+PBmodcomp(lmm.noInteraction, lmm.noInnerv, nsim = 1000, seed = 123)  # tests Innerv
+PBmodcomp(lmm.noInteraction, lmm.noLvD, nsim = 1000, seed = 123)     # tests LvD
+
+
+#Based on the bootstrapping above (and frankly on the ANOVA we did before we knew to do these more sophisticated stats), there is no interaction effect and so the model stats for the plots should be on the no interaction data.
+
+lmm.noInteraction.report <- lmer(Ratio ~ Innerv + LvD + (1 | Batch), data = SuperTUNEL)
+emmeans(lmm.noInteraction.report, pairwise ~ Innerv + LvD, adjust = "tukey")
+#emmeans(lmm.full, pairwise ~ Innerv + LvD, adjust = "tukey")
+
+#From Claude: 
+#pbkrtest::PBmodcomp() does parametric bootstrap likelihood-ratio tests comparing full vs. reduced models (e.g., dropping the interaction term). Then follow that with emmeans on either the full model or the model without interaction (this is what we did)
+#LRT	The likelihood ratio test statistic (0.7207) and its p-value (0.3959) calculated the classical/asymptotic way — assuming the statistic follows a chi-square distribution with 1 df. This is the p-value you'd get from a normal anova(lmm.full, lmm.noInteraction).
+#PBtest	The same test statistic (0.7207), but the p-value (0.4845) is calculated from the actual simulated distribution of 1000 bootstrapped LRT statistics, rather than assuming a chi-square shape. This is the p-value you want to report.
+```
+
+## F4P2: Ratio of EdU+ cells in typical light and dark-reared brains
+```{r, echo=FALSE}
+EdUDec<-read.csv("/Users/cervenyk/Documents/fish data/Tectum_Hannah_Mate_collaboration/firstpass_figures for tectum paper/Figure_4_L_D_TUNEL_EdU/TectumF5P2_EdUDec.csv")
+View(EdUDec)
+```
+### F4P2 Summary Stats and then build SuperPlot
+```{r, echo=FALSE}
+SuperEdU <- EdUDec %>% group_by(Innerv, LvD, Batch) %>% 
+  summarise(across(where(is.numeric), mean), .groups = "drop")
+SuperEdU
+SuperEdUSummary <- summarySE(SuperEdU, measurevar="Ratio", groupvars=c("LvD","Innerv"))
+SuperEdUSummary
+```
+```{r, echo=FALSE}
+EdUDec$LvD<-factor(EdUDec$LvD,
+                   levels=c("light", "dark"))
+SuperEdU$LvD<-factor(SuperEdU$LvD,
+                     levels=c("light", "dark"))
+SuperEdUSummary$LvD<-factor(SuperEdUSummary$LvD,
+                            levels=c("light", "dark"))
+EdUDec$Innerv<-factor(EdUDec$Innerv,
+                      levels=c("intact", "one-eyed"))
+SuperEdU$Innerv<-factor(SuperEdU$Innerv,
+                        levels=c("intact", "one-eyed"))
+SuperEdUSummary$Innerv<-factor(SuperEdUSummary$Innerv,
+                               levels=c("intact", "one-eyed"))
+```
+
+#Before fully making the plot, need to perform stats and make table to add p-values manually so
+#Post-hoc tests (Tukey) after mixed effect model showing that innervation status, not LvD or interaction between innervation and LvD...
+#use these values to make table of manual p-values
+ contrast                           estimate     SE df t.ratio p.value
+ intact light - (one-eyed light)     -0.2319 0.0394  7  -5.888  0.0026
+ intact light - intact dark           0.0159 0.0394  7   0.403  0.9762
+ intact light - (one-eyed dark)      -0.2160 0.0557  7  -3.879  0.0244
+ (one-eyed light) - intact dark       0.2478 0.0557  7   4.449  0.0123
+ (one-eyed light) - (one-eyed dark)   0.0159 0.0394  7   0.403  0.9762
+ intact dark - (one-eyed dark)       -0.2319 0.0394  7  -5.888  0.0026
+
+Degrees-of-freedom method: kenward-roger 
+P value adjustment: tukey method for comparing a family of 4 estimates 
+
+```{r}
+stat_manual_EdU <-tibble::tribble(
+  ~LvD,     ~group1,     ~group2,     ~p.adj,
+  "light",  "intact",    "one-eyed",  0.003,
+  "dark",   "intact",    "one-eyed",  0.0195
+) %>%
+  mutate(
+    LvD = factor(LvD, levels = c("light", "dark")),
+    p.adj.signif = case_when(
+      p.adj < 0.001 ~ "***",
+      p.adj < 0.01  ~ "**",
+      p.adj < 0.05  ~ "*",
+      TRUE          ~ "ns"
+    ),
+    y.position = 0.98   # adjust based on your beeswarm/error bar heights per facet
+  )
+```
+```{r, echo=FALSE}
+TectumF5P2_EdUDec <- ggplot(EdUDec, aes(x= Innerv, y= Ratio))+ 
+  geom_beeswarm(cex=3.5, size=2, alpha = 0.5, 
+                #dodge.width=0.75, 
+                aes(shape = Batch, fill = Batch))+ 
+  geom_beeswarm(data=SuperEdU, cex=5, size=6, dodge.width=0.75, aes(shape = Batch, fill = Batch)) + 
+  scale_shape_manual(values = c(21, 24, 23))+
+  scale_fill_manual(values=c("#E69F00", "#56B4E9", "#009E73"))+
+  facet_wrap(~LvD, strip.position = "top", scales = "free_x")+
+  ylim(-0.45,1.05)+
+  xlab("Innervation Status")+
+  ylab("Ratio of EdU+ Cells")+
+  geom_errorbar(data=SuperEdUSummary, aes(ymin=Ratio-se, ymax=Ratio+se), size=0.7, width=.15)+
+  stat_summary(data = SuperEdU, aes(x = Innerv, y = Ratio), fun = median, 
+               geom = "crossbar", width = 0.3, linewidth = 0.25)+
+  stat_pvalue_manual(stat_manual_EdU, label = "p.adj.signif", 
+                     xmin = "group1", 
+                     xmax = "group2",
+                     y.position = "y.position") #defined y.position in the stat_manual chunk above
+
+
+print(TectumF5P2_EdUDec)
+```
+```{r, echo=FALSE}
+ggsave("TTectumF5P2_EdUDec_revised.png", TectumF5P2_EdUDec, path=NULL, 
+         scale = 1, width = 16, height = 10, units = "cm", dpi = 300, limitsize = TRUE, bg=NULL)
+```
+
+statistics are using mixed effects model because of differing sizes of batches
+```{r} 
+# --- use lme4::lmer() explicitly here, NOT the masked lmerTest version ---
+#full model
+lmm.full.EdU <- lme4::lmer(Ratio ~ Innerv * LvD + (1 | Batch), data = SuperEdU, REML = FALSE)
+# reduced model(s), dropping the interaction term (additive; no interaction effect)
+lmm.noInteraction.EdU  <- lme4::lmer(Ratio ~ Innerv + LvD + (1 | Batch), data = SuperEdU, REML = FALSE)
+
+PBmodcomp(lmm.full.EdU, lmm.noInteraction.EdU, nsim = 1000, seed = 123)
+
+lmm.noInnerv.EdU <- lme4::lmer(Ratio ~ LvD + (1 | Batch), data = SuperEdU, REML = FALSE)
+lmm.noLvD.EdU    <- lme4::lmer(Ratio ~ Innerv + (1 | Batch), data = SuperEdU, REML = FALSE)
+
+PBmodcomp(lmm.noInteraction, lmm.noInnerv, nsim = 1000, seed = 123)  # tests Innerv
+PBmodcomp(lmm.noInteraction, lmm.noLvD, nsim = 1000, seed = 123)     # tests LvD
+
+
+#Based on the bootstrapping above (and frankly on the ANOVA we did before we knew to do these more sophisticated stats), there is no interaction effect and so the model stats for the plots should be on the no interaction data.
+
+lmm.noInteraction.report.EdU <- lmer(Ratio ~ Innerv + LvD + (1 | Batch), data = SuperEdU)
+emmeans(lmm.noInteraction.report.EdU, pairwise ~ Innerv + LvD, adjust = "tukey")
+
+emmeans(lmm.full.EdU, pairwise ~ Innerv + LvD, adjust = "tukey")
+
+#From Claude: LRT	The likelihood ratio test statistic (0.7207) and its p-value (0.3959) calculated the classical/asymptotic way — assuming the statistic follows a chi-square distribution with 1 df. This is the p-value you'd get from a normal anova(lmm.full, lmm.noInteraction).
+#PBtest	The same test statistic (0.7207), but the p-value (0.4845) is calculated from the actual simulated distribution of 1000 bootstrapped LRT statistics, rather than assuming a chi-square shape. This is the p-value you want to report.
+```
